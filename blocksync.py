@@ -88,7 +88,7 @@ def sync(srcdev, dsthost, dstdev):
     if not dstdev:
         dstdev = srcdev
 
-    print "Block size  : %0.1f MB" % (float(options.blocksize) / (1024 * 1024))
+    print "Block size  : %0.1f KB" % (float(options.blocksize) / (1024))
     print "Hash alg    : "+options.hashalg
     print "Crypto alg  : "+options.encalg
     print "Compression : "+str(options.compress)
