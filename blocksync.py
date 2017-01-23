@@ -26,10 +26,15 @@ try:
 except:
     fadviseable = False
     pass
- 
-SAME = "same\n"
-DIFF = "diff\n"
- 
+
+try:
+    import lzo
+except:
+    sys.stderr.write("Missing LZO library. Please run pip 'install python-lzo' on both server and client\n")
+    quit(1)
+
+SAME = "same"
+DIFF = "diff"
  
 def do_open(f, mode):
     f = open(f, mode)
@@ -49,7 +54,7 @@ def getblocks(f, blocksize, nocache):
         yield block
  
  
-def server(dev, blocksize, nocache):
+def server(dev, blocksize, nocache, compress):
     print dev, blocksize
     f, size = do_open(dev, 'r+')
     print size
@@ -58,30 +63,36 @@ def server(dev, blocksize, nocache):
     for block in getblocks(f, blocksize, nocache):
         print hashfunc(block).hexdigest()
         sys.stdout.flush()
-        res = sys.stdin.readline()
+        res, complen = sys.stdin.readline().split(":")
         if res != SAME:
-            newblock = sys.stdin.read(blocksize)
+            if compress:
+	            newblock = lzo.decompress(sys.stdin.read(int(complen)))
+            else:
+                    newblock = sys.stdin.read(blocksize)
             f.seek(-len(newblock), 1)
             f.write(newblock)
             f.flush()
  
  
-def sync(srcdev, dsthost, dstdev, blocksize, hashalg, encalg, nocache, showsum, sudo):
+def sync(srcdev, dsthost, dstdev, blocksize, hashalg, encalg, nocache, showsum, compress, sudo):
  
     if not dstdev:
         dstdev = srcdev
  
-    print "Block size: %0.1f MB" % (float(blocksize) / (1024 * 1024))
-    print "Hash alg  : "+hashalg
-    print "Crypto alg: "+encalg
+    print "Block size  : %0.1f MB" % (float(blocksize) / (1024 * 1024))
+    print "Hash alg    : "+hashalg
+    print "Crypto alg  : "+encalg
+    print "Compression : "+str(compress)
 
     cmd = ['ssh', '-c', encalg, dsthost, 'python', 'blocksync.py', 'server', dstdev, '-a', hashalg, '-b', str(blocksize)]
     if sudo:
         cmd = ['ssh', '-c', encalg, dsthost, 'sudo', 'python', 'blocksync.py', 'server', dstdev, '-a', hashalg, '-b', str(blocksize)]
     if nocache:
         cmd.append("-x")
+    if compress:
+        cmd.append("-C")
 
-    print "Running   : %s" % " ".join(cmd)
+    print "Running     : %s" % " ".join(cmd)
  
     p = subprocess.Popen(cmd, bufsize=0, stdin=subprocess.PIPE, stdout=subprocess.PIPE, close_fds=True)
     p_in, p_out = p.stdin, p.stdout
@@ -126,23 +137,25 @@ def sync(srcdev, dsthost, dstdev, blocksize, hashalg, encalg, nocache, showsum, 
         size_blocks = size_blocks+1
     c_sum = hashfunc()
     for i, l_block in enumerate(getblocks(f, blocksize, nocache)):
+        if showsum:
+            c_sum.update(l_block)
+
         l_sum = hashfunc(l_block).hexdigest()
         r_sum = p_out.readline().strip()
- 
+
         if l_sum == r_sum:
-            p_in.write(SAME)
+            p_in.write(SAME+":"+str(len(l_block))+"\n")
             p_in.flush()
             same_blocks += 1
         else:
-            p_in.write(DIFF)
+            if compress:
+                l_block = lzo.compress(l_block)
+            p_in.write(DIFF+":"+str(len(l_block))+"\n")
             p_in.flush()
             p_in.write(l_block)
             p_in.flush()
             diff_blocks += 1
 
-        if showsum:
-            c_sum.update(l_block)
- 
         t1 = time.time()
         if t1 - t_last > 1 or (same_blocks + diff_blocks) >= size_blocks:
             rate = (i + 1.0) * blocksize / (1024.0 * 1024.0) / (t1 - t0)
@@ -175,6 +188,7 @@ if __name__ == "__main__":
     parser.add_option("-e", "--encalg", dest="encalg", action="store", type="string", help="SSH encryption alg. Default: aes128", default="aes128-cbc")
     parser.add_option("-x", "--nocache", dest="nocache", action="store_true", help="Minimize read cache usage. Default: off. NOTE: it requires the fadvise extension", default=False)
     parser.add_option("-c", "--showsum", dest="showsum", action="store_true", help="Calculate and show complete source hashsum. Default: off", default=False)
+    parser.add_option("-C", "--compress", dest="compress", action="store_true", help="Use LZO compression for block transfer. Default: off", default=False)
     parser.add_option("-s", "--sudo", dest="sudo", action="store_true", help="Use sudo. Defaul: off", default=False)
     (options, args) = parser.parse_args()
  
@@ -187,7 +201,7 @@ if __name__ == "__main__":
  
     if args[0] == 'server':
         dstdev = args[1]
-        server(dstdev, options.blocksize, options.nocache)
+        server(dstdev, options.blocksize, options.nocache, options.compress)
     else:
         srcdev = args[0]
         dsthost = args[1]
@@ -195,4 +209,4 @@ if __name__ == "__main__":
             dstdev = args[2]
         else:
             dstdev = srcdev
-        sync(srcdev, dsthost, dstdev, options.blocksize, options.hashalg, options.encalg, options.nocache, options.showsum, options.sudo)
+        sync(srcdev, dsthost, dstdev, options.blocksize, options.hashalg, options.encalg, options.nocache, options.showsum, options.compress, options.sudo)
