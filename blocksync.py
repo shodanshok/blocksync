@@ -19,30 +19,48 @@ Getting started:
 #pylint: disable=W0702,W0621,W0703
 #pylint: disable=C0111,C0103,R0914,R0912,R0915
 
+# Imports
 import sys
 import hashlib
 import subprocess
 import time
 from optparse import OptionParser
+import multiprocessing
 
 try:
     import fadvise
-    FADVISEABLE = True
+    FADVISE_AVAILABLE = True
 except:
-    FADVISEABLE = False
+    FADVISE_AVAILABLE = False
 
 try:
     import lzo
+    LZO_AVAILABLE = True
 except:
-    sys.stderr.write("Missing LZO library. \
-                     Please run pip 'install python-lzo' \
-                     on both server and client\n")
-    quit(1)
+    LZO_AVAILABLE = False
 
+# Comparison constants
 SAME = "same"
 DIFF = "diff"
 
 
+# Checking for availables libs. If not found, disable the corresponding option
+def check_available_libs():
+    if options.nocache and not FADVISE_AVAILABLE:
+        options.nocache = False
+        sys.stderr.write("\n\
+            Missing FADVISE library.\n\
+            Please run 'pip install fadvise' on both client and server.\n\
+            Continuing without FADVISE...\n")
+    if options.compress and not LZO_AVAILABLE:
+        options.compress = False
+        sys.stderr.write("\n\
+            Missing LZO library.\n\
+            Please run 'pip install python-lzo' on both client and server.\n\
+            Continuing without LZO...\n")
+
+
+# Open file/dev
 def do_open(f, mode):
     f = open(f, mode)
     f.seek(0, 2)
@@ -51,47 +69,65 @@ def do_open(f, mode):
     return f, size
 
 
-def getblocks(f):
-    while 1:
+# Read, hash and put blocks on internal multiprocessing pipe
+def getblocks(dev, pipe):
+    f, dummy = do_open(dev, 'r')
+    while True:
         block = f.read(options.blocksize)
         if not block:
             break
-        if options.nocache and FADVISEABLE:
+        if options.nocache:
             fadvise.posix_fadvise(f.fileno(),
                                   f.tell()-options.blocksize, options.blocksize,
                                   fadvise.POSIX_FADV_DONTNEED)
-        yield block
+        csum = hashfunc(block).hexdigest()
+        pipe.send((csum, block))
 
 
+# This is the server (remote, or write-enabled) component
 def server(dev):
     print dev, options.blocksize
     f, size = do_open(dev, 'r+')
     print size
     sys.stdout.flush()
-
-    for block in getblocks(f):
-        print hashfunc(block).hexdigest()
+    parent, child = multiprocessing.Pipe(False)
+    reader = multiprocessing.Process(target=getblocks, args=(dev, child))
+    reader.daemon = True
+    reader.start()
+    child.close()
+    block_id = 0
+    while True:
+        try:
+            (csum, block) = parent.recv()
+        except:
+            break
+        print csum
         sys.stdout.flush()
-        res, complen = sys.stdin.readline().split(":")
+        in_line = sys.stdin.readline()
+        res, complen = in_line.split(":")
         if res != SAME:
             if options.compress:
-                newblock = lzo.decompress(sys.stdin.read(int(complen)))
+                block = lzo.decompress(sys.stdin.read(int(complen)))
             else:
-                newblock = sys.stdin.read(options.blocksize)
-            f.seek(-len(newblock), 1)
-            f.write(newblock)
+                block = sys.stdin.read(options.blocksize)
+            f.seek(block_id*options.blocksize, 0)
+            f.write(block)
             f.flush()
+        block_id = block_id+1
 
 
+# Local component. It print current options and send SAME/DIFF flags to server
 def sync(srcdev, dsthost, dstdev):
 
     if not dstdev:
         dstdev = srcdev
 
+    print
     print "Block size  : %0.1f KB" % (float(options.blocksize) / (1024))
     print "Hash alg    : "+options.hashalg
     print "Crypto alg  : "+options.encalg
     print "Compression : "+str(options.compress)
+    print "Read cache  : "+str(not options.nocache)
 
     cmd = ['ssh', '-c', options.encalg, dsthost, 'python', 'blocksync.py',
            'server', dstdev, '-a', options.hashalg, '-b',
@@ -129,7 +165,7 @@ def sync(srcdev, dsthost, dstdev):
         sys.exit(1)
 
     try:
-        f, size = do_open(srcdev, 'r')
+        dummy, size = do_open(srcdev, 'r')
     except Exception, e:
         print "Error accessing source device! %s" % e
         sys.exit(1)
@@ -148,19 +184,26 @@ def sync(srcdev, dsthost, dstdev):
     same_blocks = diff_blocks = 0
 
     print "Starting sync..."
+    parent, child = multiprocessing.Pipe(False)
+    reader = multiprocessing.Process(target=getblocks, args=(srcdev, child))
+    reader.daemon = True
+    reader.start()
+    child.close()
     t0 = time.time()
     t_last = t0
     size_blocks = size / options.blocksize
     if size_blocks * options.blocksize < size:
         size_blocks = size_blocks+1
     c_sum = hashfunc()
-    for i, l_block in enumerate(getblocks(f)):
+    block_id = 0
+    while True:
+        try:
+            (l_sum, l_block) = parent.recv()
+        except:
+            break
         if options.showsum:
             c_sum.update(l_block)
-
-        l_sum = hashfunc(l_block).hexdigest()
         r_sum = p_out.readline().strip()
-
         if l_sum == r_sum:
             p_in.write(SAME+":"+str(len(l_block))+"\n")
             p_in.flush()
@@ -173,21 +216,21 @@ def sync(srcdev, dsthost, dstdev):
             p_in.write(l_block)
             p_in.flush()
             diff_blocks += 1
-
         t1 = time.time()
         if t1 - t_last > 1 or (same_blocks + diff_blocks) >= size_blocks:
-            rate = (i + 1.0) * options.blocksize / (1024.0 * 1024.0) / (t1 - t0)
+            rate = (block_id + 1.0) * options.blocksize / (1024.0 * 1024.0) / (t1 - t0)
             print "\rsame: %d, diff: %d, %d/%d, %5.1f MB/s" %\
                   (same_blocks, diff_blocks, same_blocks + diff_blocks,
                    size_blocks, rate),
             t_last = t1
-
+        block_id = block_id+1
     print "\n\nCompleted in %d seconds" % (time.time() - t0)
     if options.showsum:
         print "Source checksum: "+c_sum.hexdigest()
-
     return same_blocks, diff_blocks
 
+
+# Dynamically loaded hash function
 def get_hashfunc():
     hashalg = options.hashalg
     if hashalg == "md5":
@@ -201,6 +244,8 @@ def get_hashfunc():
 
     return hashfunc
 
+
+# Main entry point
 if __name__ == "__main__":
     parser = OptionParser(
         usage="%prog [options] /dev/source user@remotehost [/dev/dest]")
@@ -225,6 +270,8 @@ if __name__ == "__main__":
     parser.add_option("-s", "--sudo", dest="sudo", action="store_true",
                       help="Use sudo. Defaul: off", default=False)
     (options, args) = parser.parse_args()
+
+    check_available_libs()
 
     if len(args) < 2:
         parser.print_help()
