@@ -76,12 +76,16 @@ def getblocks(dev, pipe):
         block = f.read(options.blocksize)
         if not block:
             break
+        csum = hashfunc(block).hexdigest()
+        pipe.send((csum, block))
+        # fadvises
         if options.nocache:
             fadvise.posix_fadvise(f.fileno(),
                                   f.tell()-options.blocksize, options.blocksize,
                                   fadvise.POSIX_FADV_DONTNEED)
-        csum = hashfunc(block).hexdigest()
-        pipe.send((csum, block))
+        if FADVISE_AVAILABLE:
+            fadvise.posix_fadvise(f.fileno(), f.tell(), options.blocksize*4,
+                                  fadvise.POSIX_FADV_WILLNEED)
 
 
 # This is the server (remote, or write-enabled) component
@@ -183,6 +187,7 @@ def sync(srcdev, dsthost, dstdev):
 
     same_blocks = diff_blocks = 0
 
+    print
     print "Starting sync..."
     parent, child = multiprocessing.Pipe(False)
     reader = multiprocessing.Process(target=getblocks, args=(srcdev, child))
