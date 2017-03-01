@@ -72,8 +72,9 @@ def do_open(f, mode):
 
 def create_file(dev):
     f = open(dev, 'w+')
-    f.seek(options.devsize-1)
-    f.write("\0")
+    if options.devsize > 0:
+        f.seek(options.devsize-1)
+        f.write("\0")
     f.close()
 
 
