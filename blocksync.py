@@ -20,6 +20,7 @@ Getting started:
 #pylint: disable=C0111,C0103,R0914,R0912,R0915
 
 # Imports
+import os
 import sys
 import hashlib
 import subprocess
@@ -69,6 +70,13 @@ def do_open(f, mode):
     return f, size
 
 
+def create_file(dev):
+    f = open(dev, 'w+')
+    f.seek(options.devsize-1)
+    f.write("\0")
+    f.close()
+
+
 # Read, hash and put blocks on internal multiprocessing pipe
 def getblocks(dev, pipe):
     f, dummy = do_open(dev, 'r')
@@ -90,6 +98,8 @@ def getblocks(dev, pipe):
 
 # This is the server (remote, or write-enabled) component
 def server(dev):
+    if not os.path.exists(dev) and options.force:
+        create_file(dev)
     print dev, options.blocksize
     f, size = do_open(dev, 'r+')
     print size
@@ -122,17 +132,23 @@ def server(dev):
 
 # Local component. It print current options and send SAME/DIFF flags to server
 def sync(srcdev, dsthost, dstdev):
-
+    # If dstdev is not specified, use the same name as srcdev
     if not dstdev:
         dstdev = srcdev
-
+    # Open srcdev readonly
+    try:
+        dummy, size = do_open(srcdev, 'r')
+    except Exception, e:
+        print "Error accessing source device! %s" % e
+        sys.exit(1)
+    # Print a session summary
     print
     print "Block size  : %0.1f KB" % (float(options.blocksize) / (1024))
     print "Hash alg    : "+options.hashalg
     print "Crypto alg  : "+options.encalg
     print "Compression : "+str(options.compress)
     print "Read cache  : "+str(not options.nocache)
-
+    # Generate remote command
     cmd = ['ssh', '-c', options.encalg, dsthost, 'python', 'blocksync.py',
            'server', dstdev, '-a', options.hashalg, '-b',
            str(options.blocksize)]
@@ -140,24 +156,27 @@ def sync(srcdev, dsthost, dstdev):
         cmd = ['ssh', '-c', options.encalg, dsthost, 'sudo',
                'python', 'blocksync.py', 'server', dstdev,
                '-a', options.hashalg, '-b', str(options.blocksize)]
+    # Extra options
     if options.nocache:
         cmd.append("-x")
     if options.compress:
         cmd.append("-C")
-
+    if options.force:
+        cmd.append("-f")
+        cmd.append("--devsize")
+        cmd.append(str(size))
+    # Run remote command
     print "Running     : %s" % " ".join(cmd)
-
     p = subprocess.Popen(cmd, bufsize=0,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          close_fds=True)
     p_in, p_out = p.stdin, p.stdout
-
+    # Sanity checks
     line = p_out.readline()
     p.poll()
     if p.returncode is not None:
         print "Error connecting to or invoking blocksync on the remote host!"
         sys.exit(1)
-
     a, b = line.split()
     if a != dstdev:
         print "DST device (%s) doesn't match with the remote host (%s)!" %\
@@ -167,13 +186,6 @@ def sync(srcdev, dsthost, dstdev):
         print "SRC block size (%d) doesn't match with the remote host (%d)!" %\
               (options.blocksize, int(b))
         sys.exit(1)
-
-    try:
-        dummy, size = do_open(srcdev, 'r')
-    except Exception, e:
-        print "Error accessing source device! %s" % e
-        sys.exit(1)
-
     line = p_out.readline()
     p.poll()
     if p.returncode is not None:
@@ -184,9 +196,8 @@ def sync(srcdev, dsthost, dstdev):
         print "SRC device size (%d) doesn't match DST device size (%d)!" %\
               (size, remote_size)
         sys.exit(1)
-
+    # Start sync
     same_blocks = diff_blocks = 0
-
     print
     print "Starting sync..."
     parent, child = multiprocessing.Pipe(False)
@@ -223,12 +234,14 @@ def sync(srcdev, dsthost, dstdev):
             diff_blocks += 1
         t1 = time.time()
         if t1 - t_last > 1 or (same_blocks + diff_blocks) >= size_blocks:
-            rate = (block_id + 1.0) * options.blocksize / (1024.0 * 1024.0) / (t1 - t0)
+            rate = ((block_id + 1.0) * options.blocksize / (1024.0 * 1024.0) /
+                    (t1 - t0))
             print "\rsame: %d, diff: %d, %d/%d, %5.1f MB/s" %\
                   (same_blocks, diff_blocks, same_blocks + diff_blocks,
                    size_blocks, rate),
             t_last = t1
         block_id = block_id+1
+    # Print final info
     print "\n\nCompleted in %d seconds" % (time.time() - t0)
     if options.showsum:
         print "Source checksum: "+c_sum.hexdigest()
@@ -258,7 +271,7 @@ if __name__ == "__main__":
                       type="int", help="block size (bytes). Default: 1 MiB",
                       default=1024 * 1024)
     parser.add_option("-a", "--hashalg", dest="hashalg", action="store",
-                      type="string", help="Hash alg (md5, sha1, sha256, sha512). \
+                      type="string", help="Hash alg (md5, sha1, sha256, sha512)\
                       Default: sha512", default="sha512")
     parser.add_option("-e", "--encalg", dest="encalg", action="store",
                       type="string", help="SSH encryption alg. Default: aes128",
@@ -274,6 +287,12 @@ if __name__ == "__main__":
                       Default: off", default=False)
     parser.add_option("-s", "--sudo", dest="sudo", action="store_true",
                       help="Use sudo. Defaul: off", default=False)
+    parser.add_option("-f", "--force", dest="force", action="store_true",
+                      help="Force transfer even if dst does not exist. \
+                      Default: False", default=False)
+    parser.add_option("--devsize", dest="devsize", action="store", type="int",
+                      help="*INTERNAL USE ONLY* Specify dev/file size. \
+                      Do NOT use it directly", default=False)
     (options, args) = parser.parse_args()
 
     check_available_libs()
