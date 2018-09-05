@@ -1,18 +1,23 @@
 #!/usr/bin/env python
 """
-Synchronise block devices over the network
+Synchronize dev/files over the network or locally
 
 Copyright 2006-2008 Justin Azoff <justin@bouncybouncy.net>
 Copyright 2011 Robert Coup <robert@coup.net.nz>
+Copyright 2018 Gionatan Danti <g.danti@assyoma.it>
 License: GPL
 
 Getting started:
 
+- For network copy
 * Copy blocksync.py to the home directory on the remote host
 * Make sure your remote user can either sudo or is root itself.
 * Make sure your local user can ssh to the remote host
 * Invoke:
     sudo python blocksync.py /dev/source user@remotehost /dev/dest
+
+- For local copy
+* Simply run ./blocksync with 'localhost' as the target device
 """
 
 #pylint: disable=E1101
@@ -154,7 +159,7 @@ def sync(srcdev, dsthost, dstdev):
     cmd = ['python', 'blocksync.py', 'server', dstdev, '-a', options.hashalg,
            '-b', str(options.blocksize)]
     if options.sudo:
-          cmd = ['sudo'] + cmd
+        cmd = ['sudo'] + cmd
     if not local:
         cmd = ['ssh', '-c', options.encalg, dsthost] + cmd
     # Extra options
@@ -267,7 +272,8 @@ def get_hashfunc():
 # Main entry point
 if __name__ == "__main__":
     parser = OptionParser(
-        usage="%prog [options] /dev/source user@remotehost [/dev/dest]")
+        usage="%prog [options] /dev/source user@remotehost [/dev/dest]\n\
+       %prog [options] /dev/source localhost /dev/dest")
     parser.add_option("-b", "--blocksize", dest="blocksize", action="store",
                       type="int", help="block size (bytes). Default: 1 MiB",
                       default=1024 * 1024)
