@@ -144,19 +144,19 @@ def sync(srcdev, dsthost, dstdev):
         sys.exit(1)
     # Print a session summary
     print
+    print "Local       : "+str(local)
     print "Block size  : %0.1f KB" % (float(options.blocksize) / (1024))
     print "Hash alg    : "+options.hashalg
     print "Crypto alg  : "+options.encalg
     print "Compression : "+str(options.compress)
     print "Read cache  : "+str(not options.nocache)
-    # Generate remote command
-    cmd = ['ssh', '-c', options.encalg, dsthost, 'python', 'blocksync.py',
-           'server', dstdev, '-a', options.hashalg, '-b',
-           str(options.blocksize)]
+    # Generate server command
+    cmd = ['python', 'blocksync.py', 'server', dstdev, '-a', options.hashalg,
+           '-b', str(options.blocksize)]
     if options.sudo:
-        cmd = ['ssh', '-c', options.encalg, dsthost, 'sudo',
-               'python', 'blocksync.py', 'server', dstdev,
-               '-a', options.hashalg, '-b', str(options.blocksize)]
+          cmd = ['sudo'] + cmd
+    if not local:
+        cmd = ['ssh', '-c', options.encalg, dsthost] + cmd
     # Extra options
     if options.nocache:
         cmd.append("-x")
@@ -298,13 +298,25 @@ if __name__ == "__main__":
 
     check_available_libs()
 
+    # Basic sanity check
     if len(args) < 2:
         parser.print_help()
         print __doc__
         sys.exit(1)
 
+    # Check if right side is local or remote
+    local = False
+    if args[1] == "localhost":
+        local = True
+    if local and len(args) < 3:
+        parser.print_help()
+        print __doc__
+        sys.exit(1)
+
+    # Select hash function
     hashfunc = get_hashfunc()
 
+    # Detect if server side is needed
     if args[0] == 'server':
         dstdev = args[1]
         server(dstdev)
