@@ -84,14 +84,16 @@ def create_file(dev):
 
 
 # Read, hash and put blocks on internal multiprocessing pipe
-def getblocks(dev, pipe):
-    f, dummy = do_open(dev, 'r')
+def getblocks(f):
+    zeroblock = '\0'*options.blocksize
     while True:
         block = f.read(options.blocksize)
         if not block:
             break
-        csum = hashfunc(block).hexdigest()
-        pipe.send((csum, block))
+        if block == zeroblock:
+            csum = "0"
+        else:
+            csum = hashfunc(block).hexdigest()
         # fadvises
         if options.nocache:
             fadvise.posix_fadvise(f.fileno(),
@@ -100,27 +102,27 @@ def getblocks(dev, pipe):
         if FADVISE_AVAILABLE:
             fadvise.posix_fadvise(f.fileno(), f.tell(), options.blocksize*4,
                                   fadvise.POSIX_FADV_WILLNEED)
+        # return data
+        yield (block, csum)
 
 
 # This is the server (remote, or write-enabled) component
 def server(dev):
+    # Should dstdev be created?
     if not os.path.exists(dev) and options.force:
         create_file(dev)
+    # Open and read dstdev
+    try:
+        f, size = do_open(dev, 'r+')
+    except Exception, e:
+        sys.stderr.write("ERROR: can not access destination device! %s\n" % e)
+        sys.exit(1)
+    # Begin comparison
     print dev, options.blocksize
-    f, size = do_open(dev, 'r+')
     print size
     sys.stdout.flush()
-    parent, child = multiprocessing.Pipe(False)
-    reader = multiprocessing.Process(target=getblocks, args=(dev, child))
-    reader.daemon = True
-    reader.start()
-    child.close()
     block_id = 0
-    while True:
-        try:
-            (csum, block) = parent.recv()
-        except:
-            break
+    for (block, csum) in getblocks(f):
         print csum
         sys.stdout.flush()
         in_line = sys.stdin.readline()
@@ -143,9 +145,9 @@ def sync(srcdev, dsthost, dstdev):
         dstdev = srcdev
     # Open srcdev readonly
     try:
-        dummy, size = do_open(srcdev, 'r')
+        f, size = do_open(srcdev, 'r')
     except Exception, e:
-        print "Error accessing source device! %s" % e
+        sys.stderr.write("ERROR: can not access source device! %s\n" % e)
         sys.exit(1)
     # Print a session summary
     print
@@ -173,6 +175,7 @@ def sync(srcdev, dsthost, dstdev):
         cmd.append(str(size))
     # Run remote command
     print "Running     : %s" % " ".join(cmd)
+    print
     p = subprocess.Popen(cmd, bufsize=0,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          close_fds=True)
@@ -181,36 +184,30 @@ def sync(srcdev, dsthost, dstdev):
     line = p_out.readline()
     p.poll()
     if p.returncode is not None:
-        print "Error connecting to or invoking blocksync on the remote host!"
+        sys.stderr.write("ERROR: connecting to or invoking blocksync on the remote host!\n\n")
         sys.exit(1)
     a, b = line.split()
     if a != dstdev:
-        print "DST device (%s) doesn't match with the remote host (%s)!" %\
-              (dstdev, a)
+        sys.stderr.write("ERROR: DST device (%s) doesn't match with the remote host (%s)!\n\n" %\
+              (dstdev, a))
         sys.exit(1)
     if int(b) != options.blocksize:
-        print "SRC block size (%d) doesn't match with the remote host (%d)!" %\
-              (options.blocksize, int(b))
+        sys.stderr.write("ERROR: SRC block size (%d) doesn't match with the remote host (%d)!\n\n" %\
+              (options.blocksize, int(b)))
         sys.exit(1)
     line = p_out.readline()
     p.poll()
     if p.returncode is not None:
-        print "Error accessing device on remote host!"
+        sys.stderr.write("ERROR: can no access device on remote host!\n\n")
         sys.exit(1)
     remote_size = int(line)
     if size != remote_size:
-        print "SRC device size (%d) doesn't match DST device size (%d)!" %\
-              (size, remote_size)
+        sys.stderr.write("ERROR: SRC device size (%d) doesn't match DST device size (%d)!\n\n" %\
+              (size, remote_size))
         sys.exit(1)
     # Start sync
     same_blocks = diff_blocks = 0
-    print
     print "Starting sync..."
-    parent, child = multiprocessing.Pipe(False)
-    reader = multiprocessing.Process(target=getblocks, args=(srcdev, child))
-    reader.daemon = True
-    reader.start()
-    child.close()
     t0 = time.time()
     t_last = t0
     size_blocks = size / options.blocksize
@@ -218,11 +215,7 @@ def sync(srcdev, dsthost, dstdev):
         size_blocks = size_blocks+1
     c_sum = hashfunc()
     block_id = 0
-    while True:
-        try:
-            (l_sum, l_block) = parent.recv()
-        except:
-            break
+    for (l_block, l_sum) in getblocks(f):
         if options.showsum:
             c_sum.update(l_block)
         r_sum = p_out.readline().strip()
