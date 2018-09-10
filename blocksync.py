@@ -17,7 +17,7 @@ Getting started:
     sudo python blocksync.py /dev/source user@remotehost /dev/dest
 
 - For local copy
-* Simply run ./blocksync with 'localhost' as the target device
+* Simply run ./blocksync with 'localhost' as the target host
 """
 
 #pylint: disable=E1101
@@ -31,7 +31,6 @@ import hashlib
 import subprocess
 import time
 from optparse import OptionParser
-import multiprocessing
 
 try:
     import fadvise
@@ -75,8 +74,8 @@ def do_open(f, mode):
     return f, size
 
 
-def create_file(dev):
-    f = open(dev, 'w+')
+def create_file(f):
+    f = open(f, 'w+')
     if options.devsize > 0:
         f.seek(options.devsize-1)
         f.write("\0")
@@ -107,18 +106,18 @@ def getblocks(f):
 
 
 # This is the server (remote, or write-enabled) component
-def server(dev):
-    # Should dstdev be created?
-    if not os.path.exists(dev) and options.force:
-        create_file(dev)
-    # Open and read dstdev
+def server(dstpath):
+    # Should dst be created?
+    if not os.path.exists(dstpath) and options.force:
+        create_file(dstpath)
+    # Open and read dst
     try:
-        f, size = do_open(dev, 'r+')
+        f, size = do_open(dstpath, 'r+')
     except Exception, e:
-        sys.stderr.write("ERROR: can not access destination device! %s\n" % e)
+        sys.stderr.write("ERROR: can not access destination path! %s\n" % e)
         sys.exit(1)
     # Begin comparison
-    print dev, options.blocksize
+    print dstpath, options.blocksize
     print size
     sys.stdout.flush()
     block_id = 0
@@ -139,15 +138,15 @@ def server(dev):
 
 
 # Local component. It print current options and send SAME/DIFF flags to server
-def sync(srcdev, dsthost, dstdev):
-    # If dstdev is not specified, use the same name as srcdev
-    if not dstdev:
-        dstdev = srcdev
-    # Open srcdev readonly
+def sync(srcpath, dsthost, dstpath):
+    # If dstpath is not specified, use the same name as srcpath
+    if not dstpath:
+        dstpath = srcpath
+    # Open srcpath readonly
     try:
-        f, size = do_open(srcdev, 'r')
+        f, size = do_open(srcpath, 'r')
     except Exception, e:
-        sys.stderr.write("ERROR: can not access source device! %s\n" % e)
+        sys.stderr.write("ERROR: can not access source path! %s\n" % e)
         sys.exit(1)
     # Print a session summary
     print
@@ -158,7 +157,7 @@ def sync(srcdev, dsthost, dstdev):
     print "Compression : "+str(options.compress)
     print "Read cache  : "+str(not options.nocache)
     # Generate server command
-    cmd = ['python', 'blocksync.py', 'server', dstdev, '-a', options.hashalg,
+    cmd = ['python', 'blocksync.py', 'server', dstpath, '-a', options.hashalg,
            '-b', str(options.blocksize)]
     if options.sudo:
         cmd = ['sudo'] + cmd
@@ -187,22 +186,22 @@ def sync(srcdev, dsthost, dstdev):
         sys.stderr.write("ERROR: connecting to or invoking blocksync on the remote host!\n\n")
         sys.exit(1)
     a, b = line.split()
-    if a != dstdev:
-        sys.stderr.write("ERROR: DST device (%s) doesn't match with the remote host (%s)!\n\n" %\
-              (dstdev, a))
+    if a != dstpath:
+        sys.stderr.write("ERROR: DST path (%s) doesn't match with the remote host (%s)!\n\n" %\
+              (dstpath, a))
         sys.exit(1)
     if int(b) != options.blocksize:
-        sys.stderr.write("ERROR: SRC block size (%d) doesn't match with the remote host (%d)!\n\n" %\
+        sys.stderr.write("ERROR: SRC block size (%d) doesn't match with the remote (%d)!\n\n" %\
               (options.blocksize, int(b)))
         sys.exit(1)
     line = p_out.readline()
     p.poll()
     if p.returncode is not None:
-        sys.stderr.write("ERROR: can no access device on remote host!\n\n")
+        sys.stderr.write("ERROR: can no access path on remote host!\n\n")
         sys.exit(1)
     remote_size = int(line)
     if size != remote_size:
-        sys.stderr.write("ERROR: SRC device size (%d) doesn't match DST device size (%d)!\n\n" %\
+        sys.stderr.write("ERROR: SRC path size (%d) doesn't match DST path size (%d)!\n\n" %\
               (size, remote_size))
         sys.exit(1)
     # Start sync
@@ -317,13 +316,13 @@ if __name__ == "__main__":
 
     # Detect if server side is needed
     if args[0] == 'server':
-        dstdev = args[1]
-        server(dstdev)
+        dstpath = args[1]
+        server(dstpath)
     else:
-        srcdev = args[0]
+        srcpath = args[0]
         dsthost = args[1]
         if len(args) > 2:
-            dstdev = args[2]
+            dstpath = args[2]
         else:
-            dstdev = srcdev
-        sync(srcdev, dsthost, dstdev)
+            dstpath = srcpath
+        sync(srcpath, dsthost, dstpath)
