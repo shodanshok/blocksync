@@ -44,6 +44,12 @@ try:
 except:
     LZO_AVAILABLE = False
 
+try:
+    import lz4
+    LZ4_AVAILABLE = True
+except:
+    LZ4_AVAILABLE = False
+
 # Comparison constants
 SAME = "same"
 DIFF = "diff"
@@ -51,14 +57,18 @@ DIFF = "diff"
 
 # Checking for availables libs. If not found, disable the corresponding option
 def check_available_libs():
-    hostname = os.uname()[1] 
+    hostname = os.uname()[1]
     if options.nocache and not FADVISE_AVAILABLE:
         sys.stderr.write("Missing FADVISE library.\n\
             Please run 'pip install fadvise' on "+hostname+"\n\n")
         sys.exit(1)
-    if options.compress and not LZO_AVAILABLE:
+    if options.compress == "lzo" and not LZO_AVAILABLE:
         sys.stderr.write("Missing LZO library.\n\
             Please run 'pip install python-lzo' on "+hostname+"\n\n")
+        sys.exit(1)
+    if options.compress == "lz4" and not LZ4_AVAILABLE:
+        sys.stderr.write("Missing LZ4 library.\n\
+            Please run 'pip install python-lz4' on "+hostname+"\n\n")
         sys.exit(1)
 
 
@@ -126,7 +136,7 @@ def server(dstpath):
         res, complen = in_line.split(":")
         if res != SAME:
             if options.compress:
-                block = lzo.decompress(sys.stdin.read(int(complen)))
+                block = decompfunc(sys.stdin.read(int(complen)))
             else:
                 block = sys.stdin.read(options.blocksize)
             f.seek(block_id*options.blocksize, 0)
@@ -165,7 +175,7 @@ def sync(srcpath, dsthost, dstpath):
     if options.nocache:
         cmd.append("-x")
     if options.compress:
-        cmd.append("-C")
+        cmd.append("--compress="+options.compress)
     if options.force:
         cmd.append("-f")
         cmd.append("--devsize")
@@ -222,7 +232,7 @@ def sync(srcpath, dsthost, dstpath):
             same_blocks += 1
         else:
             if options.compress:
-                l_block = lzo.compress(l_block)
+                l_block = compfunc(l_block)
             p_in.write(DIFF+":"+str(len(l_block))+"\n")
             p_in.flush()
             p_in.write(l_block)
@@ -255,9 +265,20 @@ def get_hashfunc():
         hashfunc = hashlib.sha256
     else:
         hashfunc = hashlib.sha512
-
     return hashfunc
 
+# Dynamically loaded compression function
+def get_compfunc():
+    if options.compress == "lz4":
+        compfunc = lz4.compress
+        decompfunc = lz4.decompress
+    elif options.compress == "lzo":
+        compfunc = lzo.compress
+        decompfunc = lzo.decompress
+    else:
+        compfunc = None
+        decompfunc = None
+    return (compfunc, decompfunc)
 
 # Main entry point
 if __name__ == "__main__":
@@ -279,8 +300,8 @@ if __name__ == "__main__":
     parser.add_option("-c", "--showsum", dest="showsum", action="store_true",
                       help="Calculate and show complete source hashsum. \
                       Default: off", default=False)
-    parser.add_option("-C", "--compress", dest="compress", action="store_true",
-                      help="Use LZO compression for block transfer. \
+    parser.add_option("-C", "--compress", dest="compress", action="store",
+                      help="Use lzo or lz4 compression for block transfer. \
                       Default: off", default=False)
     parser.add_option("-s", "--sudo", dest="sudo", action="store_true",
                       help="Use sudo. Defaul: off", default=False)
@@ -311,6 +332,7 @@ if __name__ == "__main__":
 
     # Select hash function
     hashfunc = get_hashfunc()
+    (compfunc, decompfunc) = get_compfunc()
 
     # Detect if server side is needed
     if args[0] == 'server':
