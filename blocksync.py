@@ -139,9 +139,11 @@ def server(dstpath):
                 block = decompfunc(sys.stdin.read(int(complen)))
             else:
                 block = sys.stdin.read(options.blocksize)
-            f.seek(block_id*options.blocksize, 0)
-            f.write(block)
-            f.flush()
+            # Do not write anything if dryrun
+            if not options.dryrun:
+                f.seek(block_id*options.blocksize, 0)
+                f.write(block)
+                f.flush()
         block_id = block_id+1
 
 
@@ -158,6 +160,7 @@ def sync(srcpath, dsthost, dstpath):
         sys.exit(1)
     # Print a session summary
     print
+    print "Dry run     : " +str(options.dryrun)
     print "Local       : "+str(local)
     print "Block size  : %0.1f KB" % (float(options.blocksize) / (1024))
     print "Hash alg    : "+options.hashalg
@@ -180,6 +183,8 @@ def sync(srcpath, dsthost, dstpath):
         cmd.append("-f")
         cmd.append("--devsize")
         cmd.append(str(size))
+    if options.dryrun:
+        cmd.append("-d")
     # Run remote command
     print "Running     : %s" % " ".join(cmd)
     print
@@ -307,6 +312,9 @@ if __name__ == "__main__":
                       help="Use sudo. Defaul: off", default=False)
     parser.add_option("-f", "--force", dest="force", action="store_true",
                       help="Force transfer even if dst does not exist. \
+                      Default: False", default=False)
+    parser.add_option("-d", "--dryrun", dest="dryrun", action="store_true",
+                      help="Dry run (do not alter destination file). \
                       Default: False", default=False)
     parser.add_option("--devsize", dest="devsize", action="store", type="int",
                       help="*INTERNAL USE ONLY* Specify dev/file size. \
