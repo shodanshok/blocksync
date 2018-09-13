@@ -74,6 +74,9 @@ def check_available_libs():
 
 # Open file/dev
 def do_open(f, mode):
+    # If dryrun, force open in read-only mode
+    if options.dryrun:
+        mode = 'r'
     f = open(f, mode)
     f.seek(0, 2)
     size = f.tell()
