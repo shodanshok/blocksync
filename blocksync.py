@@ -51,18 +51,15 @@ DIFF = "diff"
 
 # Checking for availables libs. If not found, disable the corresponding option
 def check_available_libs():
+    hostname = os.uname()[1] 
     if options.nocache and not FADVISE_AVAILABLE:
-        options.nocache = False
-        sys.stderr.write("\n\
-            Missing FADVISE library.\n\
-            Please run 'pip install fadvise' on both client and server.\n\
-            Continuing without FADVISE...\n")
+        sys.stderr.write("Missing FADVISE library.\n\
+            Please run 'pip install fadvise' on "+hostname+"\n\n")
+        sys.exit(1)
     if options.compress and not LZO_AVAILABLE:
-        options.compress = False
-        sys.stderr.write("\n\
-            Missing LZO library.\n\
-            Please run 'pip install python-lzo' on both client and server.\n\
-            Continuing without LZO...\n")
+        sys.stderr.write("Missing LZO library.\n\
+            Please run 'pip install python-lzo' on "+hostname+"\n\n")
+        sys.exit(1)
 
 
 # Open file/dev
@@ -107,6 +104,7 @@ def getblocks(f):
 
 # This is the server (remote, or write-enabled) component
 def server(dstpath):
+    check_available_libs()
     # Should dst be created?
     if not os.path.exists(dstpath) and options.force:
         create_file(dstpath)
