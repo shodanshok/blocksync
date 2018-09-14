@@ -294,8 +294,8 @@ if __name__ == "__main__":
         usage="%prog [options] /dev/source user@remotehost [/dev/dest]\n\
        %prog [options] /dev/source localhost /dev/dest")
     parser.add_option("-b", "--blocksize", dest="blocksize", action="store",
-                      type="int", help="block size (bytes). Default: 1 MiB",
-                      default=1024 * 1024)
+                      type="int", help="block size (bytes). Default: 128 KiB",
+                      default=128 * 1024)
     parser.add_option("-a", "--hashalg", dest="hashalg", action="store",
                       type="string", help="Hash alg (md5, sha1, sha256, sha512)\
                       Default: sha512", default="sha512")
