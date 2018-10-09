@@ -47,6 +47,13 @@ except:
 try:
     import lz4
     LZ4_AVAILABLE = True
+    # Newer lz4 bindings (as the FreeBSD one) require importing a sub-packages
+    try:
+        import lz4.block
+        lz4.compress = lz4.block.compress
+        lz4.decompress = lz4.block.decompress
+    except:
+        pass
 except:
     LZ4_AVAILABLE = False
 
