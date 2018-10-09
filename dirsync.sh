@@ -1,12 +1,17 @@
 #!/bin/bash
+# Example script to non-recursively backup an entire directory.
+# If files are in-use, a snapshot (ie: via ZFS) should be taken.
 
-srcdir="/tmp/test"
-dstdir="/tmp/newtest"
-dsthost=172.31.255.1
+# Variables
+srcdir="/tank/kvm/.zfs/snapshot/backup/var/lib/libvirt/images"
+dstdir="/mnt/vmbackup"
+dsthost=127.0.0.1
 spaced=false
 local_exit_code=0
 global_exit_code=0
 
+# Snapshot and backup
+zfs snapshot tank/kvm@backup
 oldIFS=$IFS; IFS=$'\n'
 for image in `ls $srcdir`; do
 	echo $image | grep -q "[[:space:]]" && spaced=true
@@ -18,4 +23,6 @@ for image in `ls $srcdir`; do
 done
 IFS=$oldIFS
 
+# Release snapshot and exit
+zfs destroy tank/kvm@backup
 exit $global_exit_code
