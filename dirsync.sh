@@ -11,7 +11,7 @@ local_exit_code=0
 global_exit_code=0
 
 # Snapshot and backup
-zfs snapshot tank/kvm@backup
+/usr/sbin/zfs snapshot tank/kvm@backup
 oldIFS=$IFS; IFS=$'\n'
 for image in `ls $srcdir`; do
 	echo $image | grep -q "[[:space:]]" && spaced=true
@@ -24,5 +24,5 @@ done
 IFS=$oldIFS
 
 # Release snapshot and exit
-zfs destroy tank/kvm@backup
+/usr/sbin/zfs destroy tank/kvm@backup
 exit $global_exit_code
