@@ -1,0 +1,59 @@
+#!/bin/bash
+# Example script to non-recursively backup an entire directory.
+# If files are in-use, a snapshot (ie: via ZFS) should be taken.
+
+# Functions
+print_usage() {
+	echo "Usage: dirsync <srcdir> <user@dsthost> <dstdir>"
+	exit 0
+}
+
+# Option parsing
+while getopts ":h" opt; do
+	case $opt in
+	h)
+	  print_usage
+  	  ;;
+	\?)
+	  print_usage
+	  ;;
+	esac
+done
+shift $((OPTIND-1))
+
+# Argument parsing
+if [ $# -ne 3 ]; then
+	print_usage
+fi
+
+# Variables
+srcdir=`dirname "$1/."`
+dstdir=`dirname "$3/."`
+dsthost=$2
+spaced=false
+local_exit_code=0
+global_exit_code=0
+
+# Argument checking
+echo $srcdir | grep -q "[[:space:]]" && spaced=true
+echo $dstdir | grep -q "[[:space:]]" && spaced=true
+echo $dsthost | grep -q "[[:space:]]" && spaced=true
+if [ $spaced ]; then
+	echo "blocksync does not support path with spaces, exiting..."
+	exit 1
+fi
+
+# Backup
+oldIFS=$IFS; IFS=$'\n'
+for image in `ls $srcdir`; do
+	echo "$srcdir/$image" | grep -q "[[:space:]]" && spaced=true
+	$spaced && global_exit_code=2 && echo "path with spaces are not supported, skipping $image" && continue
+	/root/blocksync.py -f $srcdir/$image $dsthost $dstdir/$image; local_exit_code=$?
+	if [ $local_exit_code -ne 0 ]; then
+		global_exit_code=$local_exit_code
+	fi
+done
+IFS=$oldIFS
+
+# Cleanup and exit
+exit $global_exit_code
