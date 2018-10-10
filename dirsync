@@ -43,7 +43,7 @@ $spaced && echo "blocksync does not support path with spaces, exiting..." && exi
 # Backup
 oldIFS=$IFS; IFS=$'\n'
 for image in `ls $srcdir`; do
-	echo "$srcdir/$image" | grep -q "[[:space:]]" && spaced=true
+	echo $image | grep -q "[[:space:]]" && spaced=true
 	$spaced && global_exit_code=2 && echo "path with spaces are not supported, skipping $image" && continue
 	/root/blocksync.py -f $srcdir/$image $dsthost $dstdir/$image; local_exit_code=$?
 	if [ $local_exit_code -ne 0 ]; then

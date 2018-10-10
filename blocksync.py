@@ -177,6 +177,7 @@ def sync(srcpath, dsthost, dstpath):
     print "Crypto alg  : "+options.encalg
     print "Compression : "+str(options.compress)
     print "Read cache  : "+str(not options.nocache)
+    print "SRC command : "+" ".join(sys.argv)
     # Generate server command
     cmd = ['python', 'blocksync.py', 'server', dstpath, '-a', options.hashalg,
            '-b', str(options.blocksize)]
@@ -196,7 +197,7 @@ def sync(srcpath, dsthost, dstpath):
     if options.dryrun:
         cmd.append("-d")
     # Run remote command
-    print "Running     : %s" % " ".join(cmd)
+    print "DST command : "+" ".join(cmd)
     print
     p = subprocess.Popen(cmd, bufsize=0,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -229,7 +230,7 @@ def sync(srcpath, dsthost, dstpath):
         sys.exit(1)
     # Start sync
     same_blocks = diff_blocks = 0
-    print "Starting sync..."
+    print "Synching..."
     t0 = time.time()
     t_last = t0
     size_blocks = size / options.blocksize
@@ -257,12 +258,17 @@ def sync(srcpath, dsthost, dstpath):
         if t1 - t_last > 1 or (same_blocks + diff_blocks) >= size_blocks:
             rate = ((block_id + 1.0) * options.blocksize / (1024.0 * 1024.0) /
                     (t1 - t0))
-            print "\rsame: %d, diff: %d, %d/%d, %5.1f MB/s" %\
-                  (same_blocks, diff_blocks, same_blocks + diff_blocks,
-                   size_blocks, rate),
+            if not options.quiet:
+                print "\rsame: %d, diff: %d, %d/%d, %5.1f MB/s" %\
+                      (same_blocks, diff_blocks, same_blocks + diff_blocks,
+                       size_blocks, rate),
             t_last = t1
         block_id = block_id+1
     # Print final info
+    if options.quiet:
+        print "same: %d, diff: %d, %d/%d, %5.1f MB/s" %\
+              (same_blocks, diff_blocks, same_blocks + diff_blocks,
+               size_blocks, rate),
     print "\n\nCompleted in %d seconds" % (time.time() - t0)
     if options.showsum:
         print "Source checksum: "+c_sum.hexdigest()
@@ -325,6 +331,9 @@ if __name__ == "__main__":
                       Default: False", default=False)
     parser.add_option("-d", "--dryrun", dest="dryrun", action="store_true",
                       help="Dry run (do not alter destination file). \
+                      Default: False", default=False)
+    parser.add_option("-q", "--quiet", dest="quiet", action="store_true",
+                      help="Quiet. Do not display progress. \
                       Default: False", default=False)
     parser.add_option("--devsize", dest="devsize", action="store", type="int",
                       help="*INTERNAL USE ONLY* Specify dev/file size. \
