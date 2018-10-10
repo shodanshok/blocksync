@@ -38,10 +38,7 @@ global_exit_code=0
 echo $srcdir | grep -q "[[:space:]]" && spaced=true
 echo $dstdir | grep -q "[[:space:]]" && spaced=true
 echo $dsthost | grep -q "[[:space:]]" && spaced=true
-if [ $spaced ]; then
-	echo "blocksync does not support path with spaces, exiting..."
-	exit 1
-fi
+$spaced && echo "blocksync does not support path with spaces, exiting..." && exit 1
 
 # Backup
 oldIFS=$IFS; IFS=$'\n'
