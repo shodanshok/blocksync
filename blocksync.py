@@ -258,22 +258,21 @@ def sync(srcpath, dsthost, dstpath):
         if t1 - t_last > 1 or (same_blocks + diff_blocks) >= size_blocks:
             rate = ((block_id + 1.0) * options.blocksize / (1024.0 * 1024.0) /
                     (t1 - t0))
-            if not options.quiet:
-                print "\rsame: %d, diff: %d, %d/%d, %5.1f MB/s" %\
-                      (same_blocks, diff_blocks, same_blocks + diff_blocks,
-                       size_blocks, rate),
+            show_stats(same_blocks, diff_blocks, size_blocks, rate)
             t_last = t1
         block_id = block_id+1
     # Print final info
-    if options.quiet:
-        print "same: %d, diff: %d, %d/%d, %5.1f MB/s" %\
-              (same_blocks, diff_blocks, same_blocks + diff_blocks,
-               size_blocks, rate),
     print "\n\nCompleted in %d seconds" % (time.time() - t0)
     if options.showsum:
         print "Source checksum: "+c_sum.hexdigest()
     return same_blocks, diff_blocks
 
+# Show stats
+def show_stats(same_blocks, diff_blocks, size_blocks, rate):
+    sumstring = "\rsame: %d, diff: %d, %d/%d, %5.1f MB/s"
+    if not options.quiet or (same_blocks + diff_blocks) >= size_blocks:
+        print sumstring % (same_blocks, diff_blocks, same_blocks + diff_blocks,
+                           size_blocks, rate),
 
 # Dynamically loaded hash function
 def get_hashfunc():
