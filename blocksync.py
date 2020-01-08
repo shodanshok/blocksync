@@ -92,7 +92,10 @@ def do_open(f, mode):
 
 
 def create_file(f):
-    f = open(f, 'r+b')
+    if os.path.exists(dstpath):
+        f = open(f, 'r+b')
+    else:
+        f = open(f, 'w+b')
     f.truncate(options.devsize)
     f.close()
 
