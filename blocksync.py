@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 """
 Synchronize dev/files over the network or locally
 
@@ -14,7 +14,7 @@ Getting started:
 * Make sure your remote user can either sudo or is root itself.
 * Make sure your local user can ssh to the remote host
 * Invoke:
-    sudo python blocksync.py /dev/source user@remotehost /dev/dest
+    sudo python2 blocksync.py /dev/source user@remotehost /dev/dest
 
 - For local copy
 * Simply run ./blocksync with 'localhost' as the target host
@@ -83,7 +83,7 @@ def check_available_libs():
 def do_open(f, mode):
     # If dryrun, force open in read-only mode
     if options.dryrun:
-        mode = 'r'
+        mode = 'rb'
     f = open(f, mode)
     f.seek(0, 2)
     size = f.tell()
@@ -92,10 +92,8 @@ def do_open(f, mode):
 
 
 def create_file(f):
-    f = open(f, 'w+')
-    if options.devsize > 0:
-        f.seek(options.devsize-1)
-        f.write("\0")
+    f = open(f, 'r+b')
+    f.truncate(options.devsize)
     f.close()
 
 
@@ -126,11 +124,11 @@ def getblocks(f):
 def server(dstpath):
     check_available_libs()
     # Should dst be created?
-    if not os.path.exists(dstpath) and options.force:
+    if options.force:
         create_file(dstpath)
     # Open and read dst
     try:
-        f, size = do_open(dstpath, 'r+')
+        f, size = do_open(dstpath, 'r+b')
     except Exception, e:
         sys.stderr.write("ERROR: can not access destination path! %s\n" % e)
         sys.exit(1)
@@ -164,7 +162,7 @@ def sync(srcpath, dsthost, dstpath):
         dstpath = srcpath
     # Open srcpath readonly
     try:
-        f, size = do_open(srcpath, 'r')
+        f, size = do_open(srcpath, 'rb')
     except Exception, e:
         sys.stderr.write("ERROR: can not access source path! %s\n" % e)
         sys.exit(1)
@@ -179,7 +177,7 @@ def sync(srcpath, dsthost, dstpath):
     print "Read cache  : "+str(not options.nocache)
     print "SRC command : "+" ".join(sys.argv)
     # Generate server command
-    cmd = ['python', 'blocksync.py', 'server', dstpath, '-a', options.hashalg,
+    cmd = ['python2', 'blocksync.py', 'server', dstpath, '-a', options.hashalg,
            '-b', str(options.blocksize)]
     if options.sudo:
         cmd = ['sudo'] + cmd
@@ -221,7 +219,7 @@ def sync(srcpath, dsthost, dstpath):
     line = p_out.readline()
     p.poll()
     if p.returncode is not None:
-        sys.stderr.write("ERROR: can no access path on remote host!\n\n")
+        sys.stderr.write("ERROR: can not access path on remote host!\n\n")
         sys.exit(1)
     remote_size = int(line)
     if size != remote_size:
