@@ -96,7 +96,8 @@ def create_file(f):
         f = open(f, 'r+b')
     else:
         f = open(f, 'w+b')
-    f.truncate(options.devsize)
+    if not (os.path.getsize(dstpath) == options.devsize):
+        f.truncate(options.devsize)
     f.close()
 
 
