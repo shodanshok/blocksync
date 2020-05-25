@@ -137,8 +137,10 @@ def server(dstpath):
         sys.stderr.write("ERROR: can not access destination path! %s\n" % e)
         sys.exit(1)
     # Begin comparison
+    f.seek(options.skip*options.blocksize)
     print dstpath, options.blocksize
     print size
+    print f.tell()
     sys.stdout.flush()
     block_id = 0
     for (block, csum) in getblocks(f):
@@ -153,7 +155,7 @@ def server(dstpath):
                 block = sys.stdin.read(options.blocksize)
             # Do not write anything if dryrun
             if not options.dryrun:
-                f.seek(block_id*options.blocksize, 0)
+                f.seek((block_id+options.skip)*options.blocksize, 0)
                 f.write(block)
                 f.flush()
         block_id = block_id+1
@@ -172,9 +174,10 @@ def sync(srcpath, dsthost, dstpath):
         sys.exit(1)
     # Print a session summary
     print
-    print "Dry run     : " +str(options.dryrun)
+    print "Dry run     : "+str(options.dryrun)
     print "Local       : "+str(local)
     print "Block size  : %0.1f KB" % (float(options.blocksize) / (1024))
+    print "Skipped     : "+str(options.skip)
     print "Hash alg    : "+options.hashalg
     print "Crypto alg  : "+options.encalg
     print "Compression : "+str(options.compress)
@@ -182,7 +185,7 @@ def sync(srcpath, dsthost, dstpath):
     print "SRC command : "+" ".join(sys.argv)
     # Generate server command
     cmd = ['python2', 'blocksync.py', 'server', dstpath, '-a', options.hashalg,
-           '-b', str(options.blocksize)]
+           '-b', str(options.blocksize), '-k', str(options.skip)]
     if options.sudo:
         cmd = ['sudo'] + cmd
     if not local:
@@ -230,6 +233,15 @@ def sync(srcpath, dsthost, dstpath):
         sys.stderr.write("ERROR: SRC path size (%d) doesn't match DST path size (%d)!\n\n" %\
               (size, remote_size))
         sys.exit(1)
+    line = p_out.readline()
+    p.poll()
+    if p.returncode is not None:
+        sys.stderr.write("ERROR: ???\n\n")
+        sys.exit(1)
+    remote_pos = int(line)
+    print "Current remote pos in bytes: %i" % (remote_pos)
+    f.seek(options.skip*options.blocksize)
+    print "Current local pos in bytes: %i\n" % (f.tell())
     # Start sync
     same_blocks = diff_blocks = 0
     print "Synching..."
@@ -336,6 +348,9 @@ if __name__ == "__main__":
     parser.add_option("-q", "--quiet", dest="quiet", action="store_true",
                       help="Quiet. Do not display progress. \
                       Default: False", default=False)
+    parser.add_option("-k", "--skip", dest="skip", action="store",
+                      type="int", help="Skip N blocks from the beginning. \
+                      Default: 0", default=0)
     parser.add_option("--devsize", dest="devsize", action="store", type="int",
                       help="*INTERNAL USE ONLY* Specify dev/file size. \
                       Do NOT use it directly", default=False)
