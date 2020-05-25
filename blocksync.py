@@ -87,7 +87,7 @@ def do_open(f, mode):
     f = open(f, mode)
     f.seek(0, 2)
     size = f.tell()
-    f.seek(0)
+    f.seek(options.skip*options.blocksize)
     return f, size
 
 
@@ -137,12 +137,10 @@ def server(dstpath):
         sys.stderr.write("ERROR: can not access destination path! %s\n" % e)
         sys.exit(1)
     # Begin comparison
-    f.seek(options.skip*options.blocksize)
     print dstpath, options.blocksize
     print size
-    print f.tell()
     sys.stdout.flush()
-    block_id = 0
+    block_id = options.skip
     for (block, csum) in getblocks(f):
         print csum
         sys.stdout.flush()
@@ -155,7 +153,7 @@ def server(dstpath):
                 block = sys.stdin.read(options.blocksize)
             # Do not write anything if dryrun
             if not options.dryrun:
-                f.seek((block_id+options.skip)*options.blocksize, 0)
+                f.seek(block_id*options.blocksize, 0)
                 f.write(block)
                 f.flush()
         block_id = block_id+1
@@ -177,7 +175,7 @@ def sync(srcpath, dsthost, dstpath):
     print "Dry run     : "+str(options.dryrun)
     print "Local       : "+str(local)
     print "Block size  : %0.1f KB" % (float(options.blocksize) / (1024))
-    print "Skipped     : "+str(options.skip)
+    print "Skipped     : "+str(options.skip)+" blocks"
     print "Hash alg    : "+options.hashalg
     print "Crypto alg  : "+options.encalg
     print "Compression : "+str(options.compress)
@@ -233,15 +231,6 @@ def sync(srcpath, dsthost, dstpath):
         sys.stderr.write("ERROR: SRC path size (%d) doesn't match DST path size (%d)!\n\n" %\
               (size, remote_size))
         sys.exit(1)
-    line = p_out.readline()
-    p.poll()
-    if p.returncode is not None:
-        sys.stderr.write("ERROR: ???\n\n")
-        sys.exit(1)
-    remote_pos = int(line)
-    print "Current remote pos in bytes: %i" % (remote_pos)
-    f.seek(options.skip*options.blocksize)
-    print "Current local pos in bytes: %i\n" % (f.tell())
     # Start sync
     same_blocks = diff_blocks = 0
     print "Synching..."
@@ -251,9 +240,9 @@ def sync(srcpath, dsthost, dstpath):
     if size_blocks * options.blocksize < size:
         size_blocks = size_blocks+1
     c_sum = hashfunc()
-    block_id = 0
+    block_id = options.skip
     for (l_block, l_sum) in getblocks(f):
-        if options.showsum:
+        if options.showsum and not options.skip:
             c_sum.update(l_block)
         r_sum = p_out.readline().strip()
         if l_sum == r_sum:
@@ -269,23 +258,27 @@ def sync(srcpath, dsthost, dstpath):
             p_in.flush()
             diff_blocks += 1
         t1 = time.time()
-        if t1 - t_last > 1 or (same_blocks + diff_blocks) >= size_blocks:
-            rate = ((block_id + 1.0) * options.blocksize / (1024.0 * 1024.0) /
-                    (t1 - t0))
+        if t1 - t_last > 1 or (options.skip + same_blocks + diff_blocks) >= size_blocks:
+            rate = ((block_id - options.skip + 1.0) * options.blocksize /
+                    (1024.0 * 1024.0) / (t1 - t0))
             show_stats(same_blocks, diff_blocks, size_blocks, rate)
             t_last = t1
         block_id = block_id+1
     # Print final info
     print "\n\nCompleted in %d seconds" % (time.time() - t0)
     if options.showsum:
-        print "Source checksum: "+c_sum.hexdigest()
+        if options.skip:
+            print "Source checksum: N/A (skipped block detected)"
+        else:
+            print "Source checksum: "+c_sum.hexdigest()
     return same_blocks, diff_blocks
 
 # Show stats
 def show_stats(same_blocks, diff_blocks, size_blocks, rate):
-    sumstring = "\rsame: %d, diff: %d, %d/%d, %5.1f MB/s"
+    sumstring = "\rskipped: %d, same: %d, diff: %d, %d/%d, %5.1f MB/s"
     if not options.quiet or (same_blocks + diff_blocks) >= size_blocks:
-        print sumstring % (same_blocks, diff_blocks, same_blocks + diff_blocks,
+        print sumstring % (options.skip, same_blocks, diff_blocks, 
+                           options.skip + same_blocks + diff_blocks,
                            size_blocks, rate),
 
 # Dynamically loaded hash function
