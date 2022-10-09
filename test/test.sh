@@ -16,8 +16,8 @@ for filesize in $filesizes; do
     srcfile="$testhome/src/test.$filesize"
     dstfile="$testhome/dst/test.$filesize"
     cmd="$blocksync $srcfile $remotehost $dstfile -f -a $hashalg"; $cmd >/dev/null
-    sum1=`"$hashcmd" "$testhome/src/test.$filesize" | grep -o "^[[:alnum:]]*"`
-    sum2=`ssh "$remotehost" "$hashcmd" "$testhome/src/test.$filesize" | grep -o "^[[:alnum:]]*"`
+    sum1=`"$hashcmd" "$srcfile" | grep -o "^[[:alnum:]]*"`
+    sum2=`ssh "$remotehost" "$hashcmd" "$dstfile" | grep -o "^[[:alnum:]]*"`
     if [ "$sum1" == "$sum2" ]; then
         res="PASS"
     else
@@ -35,7 +35,7 @@ done
 for skip in $skips; do
     echo "Testing skip $skip"	
     cmd="$blocksync $srcfile $remotehost $dstfile -f -a $hashalg -k $skip"; $cmd >/dev/null
-    sum2=`ssh "$remotehost" "$hashcmd" "$testhome/src/test.$filesize" | grep -o "^[[:alnum:]]*"`
+    sum2=`ssh "$remotehost" "$hashcmd" "$dstfile" | grep -o "^[[:alnum:]]*"`
     if [ "$sum1" == "$sum2" ]; then
         res="PASS"
     else
