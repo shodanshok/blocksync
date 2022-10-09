@@ -81,6 +81,8 @@ def check_available_libs():
 
 # Open file/dev
 def do_open(f, mode):
+    if f == "-":
+        return sys.stdin, 0
     # If dryrun, force open in read-only mode
     if options.dryrun:
         mode = 'rb'
@@ -227,7 +229,7 @@ def sync(srcpath, dsthost, dstpath):
         sys.stderr.write("ERROR: can not access path on remote host!\n\n")
         sys.exit(1)
     remote_size = int(line)
-    if size != remote_size:
+    if size > 0 and size != remote_size:
         sys.stderr.write("ERROR: SRC path size (%d) doesn't match DST path size (%d)!\n\n" %\
               (size, remote_size))
         sys.exit(1)
