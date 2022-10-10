@@ -184,7 +184,7 @@ def sync(srcpath, dsthost, dstpath):
     print "Read cache  : "+str(not options.nocache)
     print "SRC command : "+" ".join(sys.argv)
     # Generate server command
-    cmd = ['python2', __file__, 'server', dstpath, '-a', options.hashalg,
+    cmd = [__file__, 'server', dstpath, '-a', options.hashalg,
            '-b', str(options.blocksize), '-k', str(options.skip)]
     if options.sudo:
         cmd = ['sudo'] + cmd
