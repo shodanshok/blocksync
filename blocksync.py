@@ -110,6 +110,8 @@ def getblocks(f):
         block = f.read(options.blocksize)
         if not block:
             break
+        if f == sys.stdin:
+            block = block.encode()
         if block == zeroblock:
             csum = "0"
         else:
@@ -149,13 +151,13 @@ def server(dstpath):
         res, complen = in_line.split(":")
         if res != SAME:
             if options.compress:
-                block = decompfunc(sys.stdin.buffer.read(int(complen)))
+                block = decompfunc(sys.stdin.read(int(complen)))
             else:
-                block = sys.stdin.buffer.read(options.blocksize)
+                block = sys.stdin.read(options.blocksize)
             # Do not write anything if dryrun
             if not options.dryrun:
                 f.seek(block_id*options.blocksize, 0)
-                f.write(block)
+                f.write(block.encode())
                 f.flush()
         block_id = block_id+1
 
