@@ -98,7 +98,7 @@ def create_file(f):
         f = open(f, 'r+b')
     else:
         f = open(f, 'w+b')
-    if not (os.path.getsize(dstpath) == options.devsize):
+    if options.devsize and not (os.path.getsize(dstpath) == options.devsize):
         f.truncate(options.devsize)
     f.close()
 
@@ -148,6 +148,8 @@ def server(dstpath):
         sys.stdout.write(csum+"\n")
         sys.stdout.flush()
         in_line = sys.stdin.readline()
+        if not in_line:
+            return
         res, complen = in_line.split(":")
         if res != SAME:
             if options.compress:
@@ -268,6 +270,8 @@ def sync(srcpath, dsthost, dstpath):
             show_stats(same_blocks, diff_blocks, size_blocks, rate)
             t_last = t1
         block_id = block_id+1
+    # Sync pipes
+    p.communicate()
     # Print final info
     print ("\n\nCompleted in %d seconds" % (time.time() - t0))
     if options.showsum:
