@@ -81,8 +81,10 @@ def check_available_libs():
 
 # Open file/dev
 def do_open(f, mode):
+    # Open stdin in binary mode to avoid encoding issues
     if f == "-":
-        return sys.stdin, 0
+        f = open(0, 'rb')
+        return f, 0
     # If dryrun, force open in read-only mode
     if options.dryrun:
         mode = 'rb'
@@ -110,8 +112,6 @@ def getblocks(f):
         block = f.read(options.blocksize)
         if not block:
             break
-        if f == sys.stdin:
-            block = block.encode()
         if block == zeroblock:
             csum = "0"
         else:
@@ -147,19 +147,20 @@ def server(dstpath):
     for (block, csum) in getblocks(f):
         sys.stdout.write(csum+"\n")
         sys.stdout.flush()
-        in_line = sys.stdin.readline()
+        in_line = sys.stdin.buffer.readline()
         if not in_line:
             return
+        in_line = in_line.decode().rstrip()
         res, complen = in_line.split(":")
         if res != SAME:
             if options.compress:
-                block = decompfunc(sys.stdin.read(int(complen)))
+                block = decompfunc(sys.stdin.buffer.read(int(complen)))
             else:
-                block = sys.stdin.read(options.blocksize)
+                block = sys.stdin.buffer.read(options.blocksize)
             # Do not write anything if dryrun
             if not options.dryrun:
                 f.seek(block_id*options.blocksize, 0)
-                f.write(block.encode())
+                f.write(block)
                 f.flush()
         block_id = block_id+1
 
