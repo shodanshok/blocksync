@@ -30,7 +30,7 @@ import sys
 import hashlib
 import subprocess
 import time
-from optparse import OptionParser
+import argparse
 
 try:
     callable(os.posix_fadvise)
@@ -72,7 +72,7 @@ DIFF = "diff"
 def check_available_libs():
     hostname = os.uname()[1]
     if options.nocache and not FADVISE_AVAILABLE:
-        sys.stderr.write("Missing FADVISE library on "+hostname+"\n")
+        sys.stderr.write("Missing FADVISE support on "+hostname+"\n")
         sys.exit(1)
     if options.compress == "lzo" and not LZO_AVAILABLE:
         sys.stderr.write("Missing LZO library on "+hostname+"\n")
@@ -184,7 +184,7 @@ def sync(srcpath, dsthost, dstpath):
     print ("Read cache  : "+str(not options.nocache))
     print ("SRC command : "+" ".join(sys.argv))
     # Generate server command
-    cmd = [__file__, 'server', dstpath, '-a', options.hashalg,
+    cmd = [__file__, dstpath, "--server", '-a', options.hashalg,
            '-b', str(options.blocksize), '-k', str(options.skip)]
     if options.sudo:
         cmd = ['sudo'] + cmd
@@ -313,78 +313,58 @@ def get_compfunc():
         decompfunc = None
     return (compfunc, decompfunc)
 
-# Main entry point
-if __name__ == "__main__":
-    parser = OptionParser(
-        usage="%prog [options] /dev/source user@remotehost [/dev/dest]\n\
-       %prog [options] /dev/source localhost /dev/dest")
-    parser.add_option("-b", "--blocksize", dest="blocksize", action="store",
-                      type="int", help="block size (bytes). Default: 128 KiB",
-                      default=128 * 1024)
-    parser.add_option("-a", "--hashalg", dest="hashalg", action="store",
-                      type="string", help="Hash alg (md5, sha1, sha256, sha512)\
-                      Default: sha256", default="sha256")
-    parser.add_option("-e", "--encalg", dest="encalg", action="store",
-                      type="string", help="SSH encryption alg. Default: aes128",
-                      default="aes128-cbc")
-    parser.add_option("-x", "--nocache", dest="nocache", action="store_true",
-                      help="Minimize read cache usage. Default: off. \
-                      NOTE: it requires the fadvise extension", default=False)
-    parser.add_option("-c", "--showsum", dest="showsum", action="store_true",
-                      help="Calculate and show complete source hashsum. \
-                      Default: off", default=False)
-    parser.add_option("-C", "--compress", dest="compress", action="store",
-                      help="Use lzo lz4 or zstd compression for block transfer. \
-                      Default: off", default=False)
-    parser.add_option("-s", "--sudo", dest="sudo", action="store_true",
-                      help="Use sudo. Defaul: off", default=False)
-    parser.add_option("-f", "--force", dest="force", action="store_true",
-                      help="Force transfer even if dst does not exist. \
-                      Default: False", default=False)
-    parser.add_option("-d", "--dryrun", dest="dryrun", action="store_true",
-                      help="Dry run (do not alter destination file). \
-                      Default: False", default=False)
-    parser.add_option("-q", "--quiet", dest="quiet", action="store_true",
-                      help="Quiet. Do not display progress. \
-                      Default: False", default=False)
-    parser.add_option("-k", "--skip", dest="skip", action="store",
-                      type="int", help="Skip N blocks from the beginning. \
-                      Default: 0", default=0)
-    parser.add_option("--devsize", dest="devsize", action="store", type="int",
-                      help="*INTERNAL USE ONLY* Specify dev/file size. \
-                      Do NOT use it directly", default=False)
-    (options, args) = parser.parse_args()
+# arguments
+parser = argparse.ArgumentParser(description="python blocksync")
+parser.add_argument("params", nargs="*")
+parser.add_argument("-b", "--blocksize", action="store", default=128*1024,
+                    type=int, help="block size (bytes). Default: 128 KiB")
+parser.add_argument("-a", "--hashalg", action="store", default="sha256",
+                    help="Hash alg (md5 sha1 sha256 sha512). Default: sha256")
+parser.add_argument("-e", "--encalg", action="store", default="aes128-cbc",
+                    help="SSH encryption alg. Default: aes128")
+parser.add_argument("-x", "--nocache", action="store_true", default=False,
+                    help="Minimize read cache usage. Default: off")
+parser.add_argument("-c", "--showsum", action="store_true", default=False,
+                    help="Show complete source hashsum. Default: off")
+parser.add_argument("-C", "--compress", action="store", default=False,
+                    help="Use lzo lz4 or zstd compression. Default: off")
+parser.add_argument("-s", "--sudo", action="store_true", default=False,
+                    help="Use sudo. Defaul: off")
+parser.add_argument("-f", "--force", action="store_true", default=False,
+                    help="Force transfer even if dst does not exist. Default: off")
+parser.add_argument("-d", "--dryrun", action="store_true", default=False,
+                    help="Dry run. Default: off")
+parser.add_argument("-q", "--quiet", action="store_true", default=False,
+                    help="Do not display progress. Default: off")
+parser.add_argument("-k", "--skip", action="store", default=0, type=int,
+                    help="Skip N blocks from the beginning. Default: 0")
+parser.add_argument("--server", action="store_true", default=False,
+                    help="*INTERNAL USE ONLY* Specify server mode. Do NOT use it directly")
+parser.add_argument("--devsize", action="store", default=False,
+                    help="*INTERNAL USE ONLY* Specify dev/file size. Do NOT use it directly")
+options = parser.parse_args()
 
-    check_available_libs()
+check_available_libs()
 
-    # Basic sanity check
-    if len(args) < 2:
-        parser.print_help()
-        print (__doc__)
-        sys.exit(1)
+# Select hash function
+hashfunc = get_hashfunc()
+(compfunc, decompfunc) = get_compfunc()
 
-    # Check if right side is local or remote
-    local = False
-    if args[1] == "localhost":
-        local = True
-    if local and len(args) < 3:
-        parser.print_help()
-        print (__doc__)
-        sys.exit(1)
-
-    # Select hash function
-    hashfunc = get_hashfunc()
-    (compfunc, decompfunc) = get_compfunc()
-
-    # Detect if server side is needed
-    if args[0] == 'server':
-        dstpath = args[1]
-        server(dstpath)
+# Detect if server side is needed
+local = False
+if options.server:
+    dstpath = options.params[0]
+    server(dstpath)
+else:
+    srcpath = options.params[0]
+    dsthost = options.params[1]
+    if dsthost == "localhost":
+        local=True
+        if len(options.params) < 3:
+            parser.print_help()
+            sys.exit(1)
+    if len(options.params) > 2:
+        dstpath = options.params[2]
     else:
-        srcpath = args[0]
-        dsthost = args[1]
-        if len(args) > 2:
-            dstpath = args[2]
-        else:
-            dstpath = srcpath
-        sync(srcpath, dsthost, dstpath)
+        dstpath = srcpath
+    sync(srcpath, dsthost, dstpath)
