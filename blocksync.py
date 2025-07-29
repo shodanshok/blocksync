@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 """
 Synchronize dev/files over the network or locally
 
@@ -14,7 +14,7 @@ Getting started:
 * Make sure your remote user can either sudo or is root itself.
 * Make sure your local user can ssh to the remote host
 * Invoke:
-    sudo python2 blocksync.py /dev/source user@remotehost /dev/dest
+    sudo python3 blocksync.py /dev/source user@remotehost /dev/dest
 
 - For local copy
 * Simply run ./blocksync with 'localhost' as the target host
@@ -81,8 +81,10 @@ def check_available_libs():
 
 # Open file/dev
 def do_open(f, mode):
+    # Open stdin in binary mode to avoid encoding issues
     if f == "-":
-        return sys.stdin, 0
+        f = open(0, 'rb')
+        return f, 0
     # If dryrun, force open in read-only mode
     if options.dryrun:
         mode = 'rb'
@@ -98,7 +100,7 @@ def create_file(f):
         f = open(f, 'r+b')
     else:
         f = open(f, 'w+b')
-    if not (os.path.getsize(dstpath) == options.devsize):
+    if options.devsize and not (os.path.getsize(dstpath) == options.devsize):
         f.truncate(options.devsize)
     f.close()
 
@@ -135,24 +137,26 @@ def server(dstpath):
     # Open and read dst
     try:
         f, size = do_open(dstpath, 'r+b')
-    except Exception, e:
+    except Exception as e:
         sys.stderr.write("ERROR: can not access destination path! %s\n" % e)
         sys.exit(1)
     # Begin comparison
-    print dstpath, options.blocksize
-    print size
+    sys.stdout.write(dstpath+":"+str(options.blocksize)+":"+str(size)+"\n")
     sys.stdout.flush()
     block_id = options.skip
     for (block, csum) in getblocks(f):
-        print csum
+        sys.stdout.write(csum+"\n")
         sys.stdout.flush()
-        in_line = sys.stdin.readline()
+        in_line = sys.stdin.buffer.readline()
+        if not in_line:
+            return
+        in_line = in_line.decode().rstrip()
         res, complen = in_line.split(":")
         if res != SAME:
             if options.compress:
-                block = decompfunc(sys.stdin.read(int(complen)))
+                block = decompfunc(sys.stdin.buffer.read(int(complen)))
             else:
-                block = sys.stdin.read(options.blocksize)
+                block = sys.stdin.buffer.read(options.blocksize)
             # Do not write anything if dryrun
             if not options.dryrun:
                 f.seek(block_id*options.blocksize, 0)
@@ -169,20 +173,20 @@ def sync(srcpath, dsthost, dstpath):
     # Open srcpath readonly
     try:
         f, size = do_open(srcpath, 'rb')
-    except Exception, e:
+    except Exception as e:
         sys.stderr.write("ERROR: can not access source path! %s\n" % e)
         sys.exit(1)
     # Print a session summary
-    print
-    print "Dry run     : "+str(options.dryrun)
-    print "Local       : "+str(local)
-    print "Block size  : %0.1f KB" % (float(options.blocksize) / (1024))
-    print "Skipped     : "+str(options.skip)+" blocks"
-    print "Hash alg    : "+options.hashalg
-    print "Crypto alg  : "+options.encalg
-    print "Compression : "+str(options.compress)
-    print "Read cache  : "+str(not options.nocache)
-    print "SRC command : "+" ".join(sys.argv)
+    print ("\n");
+    print ("Dry run     : "+str(options.dryrun))
+    print ("Local       : "+str(local))
+    print ("Block size  : %0.1f KB" % (float(options.blocksize) / (1024)))
+    print ("Skipped     : "+str(options.skip)+" blocks")
+    print ("Hash alg    : "+options.hashalg)
+    print ("Crypto alg  : "+options.encalg)
+    print ("Compression : "+str(options.compress))
+    print ("Read cache  : "+str(not options.nocache))
+    print ("SRC command : "+" ".join(sys.argv))
     # Generate server command
     cmd = [__file__, 'server', dstpath, '-a', options.hashalg,
            '-b', str(options.blocksize), '-k', str(options.skip)]
@@ -202,43 +206,44 @@ def sync(srcpath, dsthost, dstpath):
     if options.dryrun:
         cmd.append("-d")
     # Run remote command
-    print "DST command : "+" ".join(cmd)
-    print
+    print ("DST command : "+" ".join(cmd))
+    print ("\n")
     p = subprocess.Popen(cmd, bufsize=0,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          close_fds=True)
     p_in, p_out = p.stdin, p.stdout
     # Sanity checks
-    line = p_out.readline()
     p.poll()
+    line = p_out.readline().decode().rstrip()
+    (remote_dstpath, remote_blocksize, remote_size) = line.split(":")
+    remote_blocksize = int(remote_blocksize)
+    remote_size = int(remote_size)
     if p.returncode is not None:
         sys.stderr.write("ERROR: connecting to or invoking blocksync on the remote host!\n\n")
         sys.exit(1)
-    a, b = line.split()
-    if a != dstpath:
+    if remote_dstpath != dstpath:
         sys.stderr.write("ERROR: DST path (%s) doesn't match with the remote host (%s)!\n\n" %\
-              (dstpath, a))
+              (dstpath, remote_dstpath))
         sys.exit(1)
-    if int(b) != options.blocksize:
+    if remote_blocksize != options.blocksize:
         sys.stderr.write("ERROR: SRC block size (%d) doesn't match with the remote (%d)!\n\n" %\
-              (options.blocksize, int(b)))
+              (options.blocksize, remote_blocksize))
         sys.exit(1)
-    line = p_out.readline()
-    p.poll()
     if p.returncode is not None:
         sys.stderr.write("ERROR: can not access path on remote host!\n\n")
         sys.exit(1)
-    remote_size = int(line)
     if size > 0 and size != remote_size:
         sys.stderr.write("ERROR: SRC path size (%d) doesn't match DST path size (%d)!\n\n" %\
               (size, remote_size))
         sys.exit(1)
     # Start sync
     same_blocks = diff_blocks = 0
-    print "Synching..."
+    print ("Synching...")
     t0 = time.time()
     t_last = t0
     size_blocks = size / options.blocksize
+    if size_blocks < 1:
+        size_blocks = 1
     if size_blocks * options.blocksize < size:
         size_blocks = size_blocks+1
     c_sum = hashfunc()
@@ -246,15 +251,15 @@ def sync(srcpath, dsthost, dstpath):
     for (l_block, l_sum) in getblocks(f):
         if options.showsum and not options.skip:
             c_sum.update(l_block)
-        r_sum = p_out.readline().strip()
+        r_sum = p_out.readline().decode().rstrip()
         if l_sum == r_sum:
-            p_in.write(SAME+":"+str(len(l_block))+"\n")
+            p_in.write((SAME+":"+str(len(l_block))+"\n").encode())
             p_in.flush()
             same_blocks += 1
         else:
             if options.compress:
                 l_block = compfunc(l_block)
-            p_in.write(DIFF+":"+str(len(l_block))+"\n")
+            p_in.write((DIFF+":"+str(len(l_block))+"\n").encode())
             p_in.flush()
             p_in.write(l_block)
             p_in.flush()
@@ -266,22 +271,24 @@ def sync(srcpath, dsthost, dstpath):
             show_stats(same_blocks, diff_blocks, size_blocks, rate)
             t_last = t1
         block_id = block_id+1
+    # Sync pipes
+    p.communicate()
     # Print final info
-    print "\n\nCompleted in %d seconds" % (time.time() - t0)
+    print ("\n\nCompleted in %d seconds" % (time.time() - t0))
     if options.showsum:
         if options.skip:
-            print "Source checksum: N/A (skipped block detected)"
+            print ("Source checksum: N/A (skipped block detected)")
         else:
-            print "Source checksum: "+c_sum.hexdigest()
+            print ("Source checksum: "+c_sum.hexdigest())
     return same_blocks, diff_blocks
 
 # Show stats
 def show_stats(same_blocks, diff_blocks, size_blocks, rate):
     sumstring = "\rskipped: %d, same: %d, diff: %d, %d/%d, %5.1f MB/s"
     if not options.quiet or (same_blocks + diff_blocks) >= size_blocks:
-        print sumstring % (options.skip, same_blocks, diff_blocks, 
+        print (sumstring % (options.skip, same_blocks, diff_blocks, 
                            options.skip + same_blocks + diff_blocks,
-                           size_blocks, rate),
+                           size_blocks, rate),end="")
 
 # Dynamically loaded hash function
 def get_hashfunc():
@@ -356,7 +363,7 @@ if __name__ == "__main__":
     # Basic sanity check
     if len(args) < 2:
         parser.print_help()
-        print __doc__
+        print (__doc__)
         sys.exit(1)
 
     # Check if right side is local or remote
@@ -365,7 +372,7 @@ if __name__ == "__main__":
         local = True
     if local and len(args) < 3:
         parser.print_help()
-        print __doc__
+        print (__doc__)
         sys.exit(1)
 
     # Select hash function
