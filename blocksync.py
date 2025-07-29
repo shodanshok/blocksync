@@ -335,7 +335,7 @@ if __name__ == "__main__":
                       default=128 * 1024)
     parser.add_option("-a", "--hashalg", dest="hashalg", action="store",
                       type="string", help="Hash alg (md5, sha1, sha256, sha512)\
-                      Default: sha512", default="sha512")
+                      Default: sha256", default="sha256")
     parser.add_option("-e", "--encalg", dest="encalg", action="store",
                       type="string", help="SSH encryption alg. Default: aes128",
                       default="aes128-cbc")
