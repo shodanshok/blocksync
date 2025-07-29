@@ -57,6 +57,12 @@ try:
 except:
     LZ4_AVAILABLE = False
 
+try:
+    import zstd
+    ZSTD_AVAILABLE = True
+except:
+    ZSTD_AVAILABLE = False
+
 # Comparison constants
 SAME = "same"
 DIFF = "diff"
@@ -66,16 +72,16 @@ DIFF = "diff"
 def check_available_libs():
     hostname = os.uname()[1]
     if options.nocache and not FADVISE_AVAILABLE:
-        sys.stderr.write("Missing FADVISE library.\n\
-            Please run 'pip install fadvise' on "+hostname+"\n\n")
+        sys.stderr.write("Missing FADVISE library on "+hostname+"\n")
         sys.exit(1)
     if options.compress == "lzo" and not LZO_AVAILABLE:
-        sys.stderr.write("Missing LZO library.\n\
-            Please run 'pip install python-lzo' on "+hostname+"\n\n")
+        sys.stderr.write("Missing LZO library on "+hostname+"\n")
         sys.exit(1)
     if options.compress == "lz4" and not LZ4_AVAILABLE:
-        sys.stderr.write("Missing LZ4 library.\n\
-            Please run 'pip install python-lz4' on "+hostname+"\n\n")
+        sys.stderr.write("Missing LZ4 library on "+hostname+"\n")
+        sys.exit(1)
+    if options.compress == "zstd" and not ZSTD_AVAILABLE:
+        sys.stderr.write("Missing ZSTD library on "+hostname+"\n")
         sys.exit(1)
 
 
@@ -311,6 +317,9 @@ def get_compfunc():
     elif options.compress == "lzo":
         compfunc = lzo.compress
         decompfunc = lzo.decompress
+    elif options.compress == "zstd":
+        compfunc = zstd.compress
+        decompfunc = zstd.decompress
     else:
         compfunc = None
         decompfunc = None
@@ -337,7 +346,7 @@ if __name__ == "__main__":
                       help="Calculate and show complete source hashsum. \
                       Default: off", default=False)
     parser.add_option("-C", "--compress", dest="compress", action="store",
-                      help="Use lzo or lz4 compression for block transfer. \
+                      help="Use lzo lz4 or zstd compression for block transfer. \
                       Default: off", default=False)
     parser.add_option("-s", "--sudo", dest="sudo", action="store_true",
                       help="Use sudo. Defaul: off", default=False)
