@@ -20,9 +20,9 @@ Getting started:
 * Simply run ./blocksync with 'localhost' as the target host
 """
 
-#pylint: disable=E1101
-#pylint: disable=W0702,W0621,W0703
-#pylint: disable=C0111,C0103,R0914,R0912,R0915
+#pylint: disable=E1101,E0401,E0606
+#pylint: disable=W0702,W0621,W0703,W1514
+#pylint: disable=C0111,C0103,C0209,R0914,R0912,R0915,R1732,I1101
 
 # Imports
 import os
@@ -87,10 +87,6 @@ def check_available_libs():
 
 # Open file/dev
 def do_open(f, mode):
-    # Open stdin in binary mode to avoid encoding issues
-    if f == "-":
-        f = open(0, 'rb')
-        return f, 0
     # If dryrun, force open in read-only mode
     if options.dryrun:
         mode = 'rb'
@@ -108,7 +104,7 @@ def create_file(f):
         f = open(f, 'r+b')
     else:
         f = open(f, 'w+b')
-    if options.devsize and not (os.path.getsize(dstpath) == options.devsize):
+    if options.devsize and not os.path.getsize(dstpath) == options.devsize:
         f.truncate(options.devsize)
     f.close()
 
@@ -119,8 +115,7 @@ def getblocks(f):
         block = f.read(options.blocksize)
         if not block:
             break
-        else:
-            csum = hashfunc(block).hexdigest()
+        csum = hashfunc(block).hexdigest()
         # fadvises
         if options.nocache:
             os.posix_fadvise(f.fileno(), f.tell()-options.blocksize,
@@ -178,7 +173,7 @@ def sync(srcpath, dsthost, dstpath):
         sys.stderr.write("ERROR: can not access source path! %s\n" % e)
         sys.exit(1)
     # Print a session summary
-    print ("\n");
+    print ("\n")
     print ("Dry run     : "+str(options.dryrun))
     print ("Local       : "+str(local))
     print ("Block size  : %0.1f KB" % (float(options.blocksize) / (1024)))
@@ -242,9 +237,7 @@ def sync(srcpath, dsthost, dstpath):
     print ("Synching...")
     t0 = time.time()
     t_last = t0
-    size_blocks = size / options.blocksize
-    if size_blocks < 1:
-        size_blocks = 1
+    size_blocks = max(size/options.blocksize, 1)
     if size_blocks * options.blocksize < size:
         size_blocks = size_blocks+1
     c_sum = hashfunc()
@@ -287,7 +280,7 @@ def sync(srcpath, dsthost, dstpath):
 def show_stats(same_blocks, diff_blocks, size_blocks, rate):
     sumstring = "\rskipped: %d, same: %d, diff: %d, %d/%d, %5.1f MB/s"
     if not options.quiet or (same_blocks + diff_blocks) >= size_blocks:
-        print (sumstring % (options.skip, same_blocks, diff_blocks, 
+        print (sumstring % (options.skip, same_blocks, diff_blocks,
                            options.skip + same_blocks + diff_blocks,
                            size_blocks, rate),end="")
 
