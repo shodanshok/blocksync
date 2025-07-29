@@ -97,6 +97,8 @@ def do_open(f, mode):
     f = open(f, mode)
     f.seek(0, 2)
     size = f.tell()
+    if FADVISE_AVAILABLE:
+        os.posix_fadvise(f.fileno(), f.tell(), 0, os.POSIX_FADV_SEQUENTIAL)
     f.seek(options.skip*options.blocksize)
     return f, size
 
@@ -113,22 +115,16 @@ def create_file(f):
 
 # Read, hash and put blocks on internal multiprocessing pipe
 def getblocks(f):
-    zeroblock = '\0'*options.blocksize
     while True:
         block = f.read(options.blocksize)
         if not block:
             break
-        if block == zeroblock:
-            csum = "0"
         else:
             csum = hashfunc(block).hexdigest()
         # fadvises
         if options.nocache:
             os.posix_fadvise(f.fileno(), f.tell()-options.blocksize,
                              options.blocksize, os.POSIX_FADV_DONTNEED)
-        if FADVISE_AVAILABLE:
-            os.posix_fadvise(f.fileno(), f.tell(), options.blocksize*4,
-                             os.POSIX_FADV_WILLNEED)
         # return data
         yield (block, csum)
 
