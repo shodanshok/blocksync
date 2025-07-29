@@ -33,7 +33,7 @@ import time
 from optparse import OptionParser
 
 try:
-    import fadvise
+    callable(os.posix_fadvise)
     FADVISE_AVAILABLE = True
 except:
     FADVISE_AVAILABLE = False
@@ -124,12 +124,11 @@ def getblocks(f):
             csum = hashfunc(block).hexdigest()
         # fadvises
         if options.nocache:
-            fadvise.posix_fadvise(f.fileno(),
-                                  f.tell()-options.blocksize, options.blocksize,
-                                  fadvise.POSIX_FADV_DONTNEED)
+            os.posix_fadvise(f.fileno(), f.tell()-options.blocksize,
+                             options.blocksize, os.POSIX_FADV_DONTNEED)
         if FADVISE_AVAILABLE:
-            fadvise.posix_fadvise(f.fileno(), f.tell(), options.blocksize*4,
-                                  fadvise.POSIX_FADV_WILLNEED)
+            os.posix_fadvise(f.fileno(), f.tell(), options.blocksize*4,
+                             os.POSIX_FADV_WILLNEED)
         # return data
         yield (block, csum)
 
