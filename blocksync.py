@@ -124,7 +124,7 @@ def getblocks(f):
 
 
 # This is the server (remote, or write-enabled) component
-def server(dstpath):
+def server():
     check_available_libs()
     # Should dst be created?
     if options.force:
@@ -161,10 +161,7 @@ def server(dstpath):
 
 
 # Local component. It print current options and send SAME/DIFF flags to server
-def sync(srcpath, dsthost, dstpath):
-    # If dstpath is not specified, use the same name as srcpath
-    if not dstpath:
-        dstpath = srcpath
+def sync():
     # Open srcpath readonly
     try:
         f, size = do_open(srcpath, 'rb')
@@ -183,7 +180,7 @@ def sync(srcpath, dsthost, dstpath):
     print ("Read cache  : "+str(not options.nocache))
     print ("SRC command : "+" ".join(sys.argv))
     # Generate server command
-    cmd = [__file__, dstpath, "--server", '-a', options.hashalg,
+    cmd = [__file__, "stdin", dstpath, "--server", '-a', options.hashalg,
            '-b', str(options.blocksize), '-k', str(options.skip)]
     if options.sudo:
         cmd = ['sudo'] + cmd
@@ -313,8 +310,10 @@ def get_compfunc():
     return (compfunc, decompfunc)
 
 # arguments
-parser = argparse.ArgumentParser(description="python blocksync")
-parser.add_argument("params", nargs="*")
+parser = argparse.ArgumentParser()
+parser.add_argument("src", help="Source file, ie: /home/example/file.img")
+parser.add_argument("rem", nargs="?", help="Legacy remote host format")
+parser.add_argument("dst", help="Destination host/file, ie: example@remote:/home/example/file.img")
 parser.add_argument("-b", "--blocksize", action="store", default=128*1024,
                     type=int, help="block size (bytes). Default: 128 KiB")
 parser.add_argument("-a", "--hashalg", action="store", default="sha256",
@@ -342,28 +341,40 @@ parser.add_argument("--server", action="store_true", default=False,
 parser.add_argument("--devsize", action="store", default=False,
                     help="*INTERNAL USE ONLY* Specify dev/file size. Do NOT use it directly")
 options = parser.parse_args()
-
 check_available_libs()
 
 # Select hash function
 hashfunc = get_hashfunc()
 (compfunc, decompfunc) = get_compfunc()
 
-# Detect if server side is needed
+# Global vars
 local = False
-if options.server:
-    dstpath = options.params[0]
-    server(dstpath)
+srchost = False
+srcpath = False
+dsthost = False
+dstpath = False
+
+# Params parsing
+if "@" in options.src and ":" in options.src:
+    (srchost, srcpath) = options.src.split(':')
 else:
-    srcpath = options.params[0]
-    dsthost = options.params[1]
-    if dsthost == "localhost":
-        local=True
-        if len(options.params) < 3:
-            parser.print_help()
-            sys.exit(1)
-    if len(options.params) > 2:
-        dstpath = options.params[2]
-    else:
-        dstpath = srcpath
-    sync(srcpath, dsthost, dstpath)
+    srcpath = options.src
+if "@" in options.dst and ":" in options.dst:
+    (dsthost, dstpath) = options.dst.split(':')
+else:
+    dstpath = options.dst
+if options.rem:
+    dsthost = options.rem
+if not dstpath:
+    dstpath = srcpath
+if not srchost and not dsthost or "localhost" in dsthost:
+    local = True
+    if srcpath == dstpath:
+        parser.print_help()
+        sys.exit(1)
+
+# Start sync
+if options.server:
+    server()
+else:
+    sync()
