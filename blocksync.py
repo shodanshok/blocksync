@@ -63,7 +63,7 @@ try:
 except:
     ZSTD_AVAILABLE = False
 
-# Comparison constants
+# Constants
 SAME = "same"
 DIFF = "diff"
 
@@ -116,11 +116,10 @@ def getblocks(f):
         if not block:
             break
         csum = hashfunc(block).hexdigest()
-        # fadvises
         if options.nocache:
-            os.posix_fadvise(f.fileno(), f.tell()-options.blocksize,
-                             options.blocksize, os.POSIX_FADV_DONTNEED)
-        # return data
+            cache = max(options.blocksize, 1024*1024)
+            os.posix_fadvise(f.fileno(), f.tell()-cache, cache,
+                             os.POSIX_FADV_DONTNEED)
         yield (block, csum)
 
 
