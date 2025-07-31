@@ -125,43 +125,6 @@ def getblocks(f):
         yield (block, csum)
 
 
-# This is the server (remote, or write-enabled) component
-def server():
-    check_available_libs()
-    # Should dst be created?
-    if options.force:
-        create_file(dstpath)
-    # Open and read dst
-    try:
-        f, size = do_open(dstpath, 'r+b')
-    except Exception as e:
-        sys.stderr.write("ERROR: can not access destination path! %s\n" % e)
-        sys.exit(1)
-    # Begin comparison
-    sys.stdout.write(dstpath+":"+str(options.blocksize)+":"+str(size)+"\n")
-    sys.stdout.flush()
-    block_id = options.skip
-    for (block, csum) in getblocks(f):
-        sys.stdout.write(csum+"\n")
-        sys.stdout.flush()
-        in_line = sys.stdin.buffer.readline()
-        if not in_line:
-            return
-        in_line = in_line.decode().rstrip()
-        res, complen = in_line.split(":")
-        if res != SAME:
-            if options.compress:
-                block = decompfunc(sys.stdin.buffer.read(int(complen)))
-            else:
-                block = sys.stdin.buffer.read(options.blocksize)
-            # Do not write anything if dryrun
-            if not options.dryrun:
-                f.seek(block_id*options.blocksize, 0)
-                f.write(block)
-                f.flush()
-        block_id = block_id+1
-
-
 def print_session():
     print ("\n")
     print ("Dry run     : "+str(options.dryrun))
@@ -193,12 +156,18 @@ def print_epilog(t_start):
 
 
 def generate_command(size):
-    cmd = [__file__, "stdin", dstpath, "--server", '-a', options.hashalg,
-           '-b', str(options.blocksize), '-k', str(options.skip)]
+    if srchost:
+        host = srchost
+        cmd = [__file__, srcpath, "stdout", "--reader", '-a', options.hashalg,
+               '-b', str(options.blocksize), '-k', str(options.skip)]
+    else:
+        host = dsthost
+        cmd = [__file__, "stdin", dstpath, "--writer", '-a', options.hashalg,
+               '-b', str(options.blocksize), '-k', str(options.skip)]
     if options.sudo:
         cmd = ['sudo'] + cmd
     if not local:
-        cmd = ['ssh', '-c', options.encalg, dsthost] + cmd
+        cmd = ['ssh', '-c', options.encalg, host] + cmd
     if options.nocache:
         cmd.append("-x")
     if options.compress:
@@ -217,46 +186,100 @@ def generate_command(size):
 def sanity_check(size, p):
     p.poll()
     line = p.stdout.readline().decode().rstrip()
-    (remote_dstpath, remote_blocksize, remote_size) = line.split(":")
-    remote_blocksize = int(remote_blocksize)
-    remote_size = int(remote_size)
+    (child_path, child_blocksize, child_size) = line.split(":")
+    child_blocksize = int(child_blocksize)
+    child_size = int(child_size)
+    if srchost:
+        path = srcpath
+    else:
+        path = dstpath
     if p.returncode is not None:
-        sys.stderr.write("ERROR: connecting to or invoking blocksync on the remote host!\n\n")
+        sys.stderr.write("ERROR: connecting to or invoking child blocksync process!\n\n")
         return False
-    if remote_dstpath != dstpath:
-        sys.stderr.write("ERROR: DST path (%s) doesn't match with the remote host (%s)!\n\n" %\
-                (dstpath, remote_dstpath))
+    if child_path != path:
+        sys.stderr.write("ERROR: local path (%s) doesn't match with child (%s)!\n\n" %\
+                (path, child_path))
         return False
-    if remote_blocksize != options.blocksize:
-        sys.stderr.write("ERROR: SRC block size (%d) doesn't match with the remote (%d)!\n\n" %\
-                (options.blocksize, remote_blocksize))
+    if child_blocksize != options.blocksize:
+        sys.stderr.write("ERROR: local block size (%d) doesn't match with child (%d)!\n\n" %\
+                (options.blocksize, child_blocksize))
         return False
     if p.returncode is not None:
-        sys.stderr.write("ERROR: can not access path on remote host!\n\n")
+        sys.stderr.write("ERROR: can not access path from child process!\n\n")
         return False
-    if size > 0 and size != remote_size:
-        sys.stderr.write("ERROR: SRC path size (%d) doesn't match DST path size (%d)!\n\n" %\
-                (size, remote_size))
+    if size > 0 and size != child_size:
+        sys.stderr.write("ERROR: local path size (%d) doesn't match child path size (%d)!\n\n" %\
+                (size, child_size))
         return False
     return True
 
 
-# Local component. It print current options and send SAME/DIFF flags to server
+def child():
+    check_available_libs()
+    if options.reader:
+        path = srcpath
+        try:
+            f, size = do_open(srcpath, 'rb')
+        except Exception as e:
+            sys.stderr.write("ERROR: can not access source path! %s\n" % e)
+            sys.exit(1)
+    else:
+        path = dstpath
+        if options.force:
+            create_file(dstpath)
+        try:
+            f, size = do_open(dstpath, 'r+b')
+        except Exception as e:
+            sys.stderr.write("ERROR: can not access destination path! %s\n" % e)
+            sys.exit(1)
+    # Begin comparison
+    sys.stdout.write(path+":"+str(options.blocksize)+":"+str(size)+"\n")
+    sys.stdout.flush()
+    block_id = options.skip
+    for (block, csum) in getblocks(f):
+        sys.stdout.write(csum+"\n")
+        sys.stdout.flush()
+        (res, complen) = sys.stdin.buffer.readline().decode().rstrip().split(":")
+        if res != SAME:
+            if options.reader:
+                if options.compress:
+                    block = compfunc(block)
+                sys.stdout.write(csum+":"+str(len(block))+"\n")
+                sys.stdout.flush()
+                sys.stdout.buffer.write(block)
+                sys.stdout.flush()
+            else:
+                if options.compress:
+                    block = decompfunc(sys.stdin.buffer.read(int(complen)))
+                else:
+                    block = sys.stdin.buffer.read(options.blocksize)
+                # Do not write anything if dryrun
+                if not options.dryrun:
+                    f.seek(block_id*options.blocksize, 0)
+                    f.write(block)
+                    f.flush()
+        block_id = block_id+1
+
+
+# Local component. It print current options and send SAME/DIFF flags to child
 def sync():
-    # Open srcpath readonly
+    if srchost:
+        path = dstpath
+        mode = "r+b"
+    else:
+        path = srcpath
+        mode = "rb"
     try:
-        f, size = do_open(srcpath, 'rb')
+        f, size = do_open(path, mode)
     except Exception as e:
-        sys.stderr.write("ERROR: can not access source path! %s\n" % e)
+        sys.stderr.write("ERROR: can not access path! %s\n" % e)
         sys.exit(1)
     # Print session summary
     print_session()
     # Generate server command
     cmd = generate_command(size)
     # Run remote command
-    p = subprocess.Popen(cmd, bufsize=0,
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         close_fds=True)
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     # Sanity checks
     if not sanity_check(size, p):
         sys.exit(1)
@@ -267,20 +290,32 @@ def sync():
     size_blocks = max(math.ceil(size/options.blocksize), 1)
     block_id = options.skip
     for (l_block, l_sum) in getblocks(f):
-        if options.showsum and not options.skip:
-            hashfunc().update(l_block)
+        #if options.showsum and not options.skip:
+        #    hashfunc().update(l_block)
         r_sum = p.stdout.readline().decode().rstrip()
         if l_sum == r_sum:
             p.stdin.write((SAME+":"+str(len(l_block))+"\n").encode())
             p.stdin.flush()
             same_blocks += 1
         else:
-            if options.compress:
-                l_block = compfunc(l_block)
-            p.stdin.write((DIFF+":"+str(len(l_block))+"\n").encode())
-            p.stdin.flush()
-            p.stdin.write(l_block)
-            p.stdin.flush()
+            if srchost:
+                p.stdin.write((DIFF+":"+str(len(l_block))+"\n").encode())
+                p.stdin.flush()
+                (r_sum, r_len) = p.stdout.readline().decode().rstrip().split(":")
+                r_block = p.stdout.read(int(r_len))
+                if options.compress:
+                    r_block = decompfunc(r_block)
+                if not options.dryrun:
+                    f.seek(block_id*options.blocksize, 0)
+                    f.write(r_block)
+                    f.flush()
+            else:
+                if options.compress:
+                    l_block = compfunc(l_block)
+                p.stdin.write((DIFF+":"+str(len(l_block))+"\n").encode())
+                p.stdin.flush()
+                p.stdin.write(l_block)
+                p.stdin.flush()
             diff_blocks += 1
         t_now = time.time()
         block_id = block_id+1
@@ -354,7 +389,9 @@ parser.add_argument("-q", "--quiet", action="store_true", default=False,
                     help="Do not display progress. Default: off")
 parser.add_argument("-k", "--skip", action="store", default=0, type=int,
                     help="Skip N blocks from the beginning. Default: 0")
-parser.add_argument("--server", action="store_true", default=False,
+parser.add_argument("--writer", action="store_true", default=False,
+                    help="*INTERNAL USE ONLY* Specify server mode. Do NOT use it directly")
+parser.add_argument("--reader", action="store_true", default=False,
                     help="*INTERNAL USE ONLY* Specify server mode. Do NOT use it directly")
 parser.add_argument("--devsize", action="store", default=False, type=int,
                     help="*INTERNAL USE ONLY* Specify dev/file size. Do NOT use it directly")
@@ -392,7 +429,7 @@ if not srchost and not dsthost or dsthost == "localhost":
         sys.exit(1)
 
 # Start sync
-if options.server:
-    server()
+if options.reader or options.writer:
+    child()
 else:
     sync()
