@@ -32,6 +32,7 @@ import subprocess
 import time
 import argparse
 import math
+import zlib
 
 try:
     callable(os.posix_fadvise)
@@ -303,6 +304,9 @@ def get_compfunc():
     elif options.compress == "zstd":
         compfunc = zstd.compress
         decompfunc = zstd.decompress
+    elif options.compress == "zlib":
+        compfunc = zlib.compress
+        decompfunc = zlib.decompress
     else:
         compfunc = None
         decompfunc = None
@@ -316,7 +320,7 @@ parser.add_argument("dst", help="Destination host/file, ie: example@remote:/home
 parser.add_argument("-b", "--blocksize", action="store", default=128*1024,
                     type=int, help="block size (bytes). Default: 128 KiB")
 parser.add_argument("-a", "--hashalg", action="store", default="sha256",
-                    help="Hash alg (md5 sha1 sha256 sha512). Default: sha256")
+                    help="Hash alg: md5 sha1 sha256 sha512. Default: sha256")
 parser.add_argument("-e", "--encalg", action="store", default="aes128-cbc",
                     help="SSH encryption alg. Default: aes128")
 parser.add_argument("-x", "--nocache", action="store_true", default=False,
@@ -324,7 +328,7 @@ parser.add_argument("-x", "--nocache", action="store_true", default=False,
 parser.add_argument("-c", "--showsum", action="store_true", default=False,
                     help="Show complete source hashsum. Default: off")
 parser.add_argument("-C", "--compress", action="store", default=False,
-                    help="Use lzo lz4 or zstd compression. Default: off")
+                    help="Compression: lzo lz4 zstd zlib. Default: off")
 parser.add_argument("-s", "--sudo", action="store_true", default=False,
                     help="Use sudo. Defaul: off")
 parser.add_argument("-f", "--force", action="store_true", default=False,
