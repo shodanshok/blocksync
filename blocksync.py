@@ -119,7 +119,7 @@ def getblocks(f):
             break
         csum = hashfunc(block).hexdigest()
         if options.nocache:
-            cache = max(options.blocksize, 1024*1024)
+            cache = max(options.blocksize*4, 1024*1024)
             os.posix_fadvise(f.fileno(), f.tell()-cache, cache,
                              os.POSIX_FADV_DONTNEED)
         yield (block, csum)
@@ -341,7 +341,7 @@ parser.add_argument("-k", "--skip", action="store", default=0, type=int,
                     help="Skip N blocks from the beginning. Default: 0")
 parser.add_argument("--server", action="store_true", default=False,
                     help="*INTERNAL USE ONLY* Specify server mode. Do NOT use it directly")
-parser.add_argument("--devsize", action="store", default=False,
+parser.add_argument("--devsize", action="store", default=False, type=int,
                     help="*INTERNAL USE ONLY* Specify dev/file size. Do NOT use it directly")
 options = parser.parse_args()
 check_available_libs()
