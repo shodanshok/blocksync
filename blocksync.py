@@ -162,15 +162,7 @@ def server():
         block_id = block_id+1
 
 
-# Local component. It print current options and send SAME/DIFF flags to server
-def sync():
-    # Open srcpath readonly
-    try:
-        f, size = do_open(srcpath, 'rb')
-    except Exception as e:
-        sys.stderr.write("ERROR: can not access source path! %s\n" % e)
-        sys.exit(1)
-    # Print a session summary
+def print_session():
     print ("\n")
     print ("Dry run     : "+str(options.dryrun))
     print ("Local       : "+str(local))
@@ -181,14 +173,32 @@ def sync():
     print ("Compression : "+str(options.compress))
     print ("Read cache  : "+str(not options.nocache))
     print ("SRC command : "+" ".join(sys.argv))
-    # Generate server command
+
+
+def print_stats(same_blocks, diff_blocks, size_blocks, rate):
+    sumstring = "\rskipped: %d, same: %d, diff: %d, %d/%d, %5.1f MB/s"
+    if options.quiet:
+        return
+    print (sumstring % (options.skip, same_blocks, diff_blocks,
+                        options.skip + same_blocks + diff_blocks,
+                        size_blocks, rate),end="")
+
+def print_epilog(t_start):
+    print ("\n\nCompleted in %d seconds" % (time.time() - t_start))
+    if options.showsum:
+        if options.skip:
+            print ("Source checksum: N/A (skipped block detected)")
+        else:
+            print ("Source checksum: "+hashfunc().hexdigest())
+
+
+def generate_command(size):
     cmd = [__file__, "stdin", dstpath, "--server", '-a', options.hashalg,
            '-b', str(options.blocksize), '-k', str(options.skip)]
     if options.sudo:
         cmd = ['sudo'] + cmd
     if not local:
         cmd = ['ssh', '-c', options.encalg, dsthost] + cmd
-    # Extra options
     if options.nocache:
         cmd.append("-x")
     if options.compress:
@@ -199,86 +209,91 @@ def sync():
         cmd.append(str(size))
     if options.dryrun:
         cmd.append("-d")
-    # Run remote command
     print ("DST command : "+" ".join(cmd))
     print ("\n")
-    p = subprocess.Popen(cmd, bufsize=0,
-                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         close_fds=True)
-    p_in, p_out = p.stdin, p.stdout
-    # Sanity checks
+    return cmd
+
+
+def sanity_check(size, p):
     p.poll()
-    line = p_out.readline().decode().rstrip()
+    line = p.stdout.readline().decode().rstrip()
     (remote_dstpath, remote_blocksize, remote_size) = line.split(":")
     remote_blocksize = int(remote_blocksize)
     remote_size = int(remote_size)
     if p.returncode is not None:
         sys.stderr.write("ERROR: connecting to or invoking blocksync on the remote host!\n\n")
-        sys.exit(1)
+        return False
     if remote_dstpath != dstpath:
         sys.stderr.write("ERROR: DST path (%s) doesn't match with the remote host (%s)!\n\n" %\
-              (dstpath, remote_dstpath))
-        sys.exit(1)
+                (dstpath, remote_dstpath))
+        return False
     if remote_blocksize != options.blocksize:
         sys.stderr.write("ERROR: SRC block size (%d) doesn't match with the remote (%d)!\n\n" %\
-              (options.blocksize, remote_blocksize))
-        sys.exit(1)
+                (options.blocksize, remote_blocksize))
+        return False
     if p.returncode is not None:
         sys.stderr.write("ERROR: can not access path on remote host!\n\n")
-        sys.exit(1)
+        return False
     if size > 0 and size != remote_size:
         sys.stderr.write("ERROR: SRC path size (%d) doesn't match DST path size (%d)!\n\n" %\
-              (size, remote_size))
+                (size, remote_size))
+        return False
+    return True
+
+
+# Local component. It print current options and send SAME/DIFF flags to server
+def sync():
+    # Open srcpath readonly
+    try:
+        f, size = do_open(srcpath, 'rb')
+    except Exception as e:
+        sys.stderr.write("ERROR: can not access source path! %s\n" % e)
+        sys.exit(1)
+    # Print session summary
+    print_session()
+    # Generate server command
+    cmd = generate_command(size)
+    # Run remote command
+    p = subprocess.Popen(cmd, bufsize=0,
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         close_fds=True)
+    # Sanity checks
+    if not sanity_check(size, p):
         sys.exit(1)
     # Start sync
-    same_blocks = diff_blocks = 0
     print ("Synching...")
-    t0 = time.time()
-    t_last = t0
+    same_blocks = diff_blocks = 0
+    t_start = t_last = time.time()
     size_blocks = max(math.ceil(size/options.blocksize), 1)
-    c_sum = hashfunc()
     block_id = options.skip
     for (l_block, l_sum) in getblocks(f):
         if options.showsum and not options.skip:
-            c_sum.update(l_block)
-        r_sum = p_out.readline().decode().rstrip()
+            hashfunc().update(l_block)
+        r_sum = p.stdout.readline().decode().rstrip()
         if l_sum == r_sum:
-            p_in.write((SAME+":"+str(len(l_block))+"\n").encode())
-            p_in.flush()
+            p.stdin.write((SAME+":"+str(len(l_block))+"\n").encode())
+            p.stdin.flush()
             same_blocks += 1
         else:
             if options.compress:
                 l_block = compfunc(l_block)
-            p_in.write((DIFF+":"+str(len(l_block))+"\n").encode())
-            p_in.flush()
-            p_in.write(l_block)
-            p_in.flush()
+            p.stdin.write((DIFF+":"+str(len(l_block))+"\n").encode())
+            p.stdin.flush()
+            p.stdin.write(l_block)
+            p.stdin.flush()
             diff_blocks += 1
-        t1 = time.time()
-        if t1 - t_last > 1 or (options.skip + same_blocks + diff_blocks) >= size_blocks:
-            rate = ((block_id - options.skip + 1.0) * options.blocksize /
-                    (1024.0 * 1024.0) / (t1 - t0))
-            show_stats(same_blocks, diff_blocks, size_blocks, rate)
-            t_last = t1
+        t_now = time.time()
         block_id = block_id+1
+        if t_now - t_last > 1 or block_id >= size_blocks:
+            rate = ((block_id - options.skip + 1.0) * options.blocksize /
+                    (1024.0 * 1024.0) / (t_now - t_start))
+            print_stats(same_blocks, diff_blocks, size_blocks, rate)
+            t_last = t_now
     # Sync pipes
     p.communicate()
     # Print final info
-    print ("\n\nCompleted in %d seconds" % (time.time() - t0))
-    if options.showsum:
-        if options.skip:
-            print ("Source checksum: N/A (skipped block detected)")
-        else:
-            print ("Source checksum: "+c_sum.hexdigest())
-    return same_blocks, diff_blocks
+    print_epilog(t_start)
 
-# Show stats
-def show_stats(same_blocks, diff_blocks, size_blocks, rate):
-    sumstring = "\rskipped: %d, same: %d, diff: %d, %d/%d, %5.1f MB/s"
-    if not options.quiet or (same_blocks + diff_blocks) >= size_blocks:
-        print (sumstring % (options.skip, same_blocks, diff_blocks,
-                           options.skip + same_blocks + diff_blocks,
-                           size_blocks, rate),end="")
 
 # Dynamically loaded hash function
 def get_hashfunc():
