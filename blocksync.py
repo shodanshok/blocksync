@@ -336,7 +336,7 @@ parser.add_argument("-b", "--blocksize", action="store", default=128*1024,
                     type=int, help="block size (bytes). Default: 128 KiB")
 parser.add_argument("-a", "--hashalg", action="store", default="sha256",
                     help="Hash alg: md5 sha1 sha256 sha512. Default: sha256")
-parser.add_argument("-e", "--encalg", action="store", default="aes128-cbc",
+parser.add_argument("-e", "--encalg", action="store", default="aes128-ctr,aes128-cbc",
                     help="SSH encryption alg. Default: aes128")
 parser.add_argument("-x", "--nocache", action="store_true", default=False,
                     help="Minimize read cache usage. Default: off")
@@ -385,7 +385,7 @@ if options.rem:
     dsthost = options.rem
 if not dstpath:
     dstpath = srcpath
-if not srchost and not dsthost or "localhost" in dsthost:
+if not srchost and not dsthost or dsthost == "localhost":
     local = True
     if srcpath == dstpath:
         parser.print_help()
