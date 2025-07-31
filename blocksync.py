@@ -31,6 +31,7 @@ import hashlib
 import subprocess
 import time
 import argparse
+import math
 
 try:
     callable(os.posix_fadvise)
@@ -233,9 +234,7 @@ def sync():
     print ("Synching...")
     t0 = time.time()
     t_last = t0
-    size_blocks = max(size/options.blocksize, 1)
-    if size_blocks * options.blocksize < size:
-        size_blocks = size_blocks+1
+    size_blocks = max(math.ceil(size/options.blocksize), 1)
     c_sum = hashfunc()
     block_id = options.skip
     for (l_block, l_sum) in getblocks(f):
