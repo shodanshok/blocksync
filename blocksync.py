@@ -146,13 +146,13 @@ def print_stats(same_blocks, diff_blocks, size_blocks, rate):
                         options.skip + same_blocks + diff_blocks,
                         size_blocks, rate),end="")
 
-def print_epilog(t_start):
+def print_epilog(t_start, s_sum):
     print ("\n\nCompleted in %d seconds" % (time.time() - t_start))
     if options.showsum:
         if options.skip:
             print ("Source checksum: N/A (skipped block detected)")
         else:
-            print ("Source checksum: "+hashfunc().hexdigest())
+            print ("Source checksum: "+s_sum)
 
 
 def generate_command(size):
@@ -178,6 +178,8 @@ def generate_command(size):
         cmd.append(str(size))
     if options.dryrun:
         cmd.append("-d")
+    if options.showsum:
+        cmd.append("-c")
     print ("DST command : "+" ".join(cmd))
     print ("\n")
     return cmd
@@ -185,7 +187,7 @@ def generate_command(size):
 
 def sanity_check(size, p):
     p.poll()
-    line = p.stdout.readline().decode().rstrip()
+    line = p.stdout.readline().rstrip()
     (child_path, child_blocksize, child_size) = line.split(":")
     child_blocksize = int(child_blocksize)
     child_size = int(child_size)
@@ -236,10 +238,13 @@ def child():
     sys.stdout.write(path+":"+str(options.blocksize)+":"+str(size)+"\n")
     sys.stdout.flush()
     block_id = options.skip
+    s_sum = hashfunc()
     for (block, csum) in getblocks(f):
         sys.stdout.write(csum+"\n")
         sys.stdout.flush()
         (res, complen) = sys.stdin.buffer.readline().decode().rstrip().split(":")
+        if options.showsum and options.reader:
+            s_sum.update(block)
         if res != SAME:
             if options.reader:
                 if options.compress:
@@ -259,6 +264,9 @@ def child():
                     f.write(block)
                     f.flush()
         block_id = block_id+1
+    if options.reader:
+        sys.stdout.write(s_sum.hexdigest()+"\n")
+        sys.stdout.flush()
 
 
 # Local component. It print current options and send SAME/DIFF flags to child
@@ -279,7 +287,7 @@ def sync():
     # Generate server command
     cmd = generate_command(size)
     # Run remote command
-    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     # Sanity checks
     if not sanity_check(size, p):
         sys.exit(1)
@@ -289,20 +297,21 @@ def sync():
     t_start = t_last = time.time()
     size_blocks = max(math.ceil(size/options.blocksize), 1)
     block_id = options.skip
+    s_sum = hashfunc()
     for (l_block, l_sum) in getblocks(f):
-        #if options.showsum and not options.skip:
-        #    hashfunc().update(l_block)
-        r_sum = p.stdout.readline().decode().rstrip()
+        if options.showsum and not options.skip:
+            s_sum.update(l_block)
+        r_sum = p.stdout.readline().rstrip()
         if l_sum == r_sum:
-            p.stdin.write((SAME+":"+str(len(l_block))+"\n").encode())
+            p.stdin.write(SAME+":"+str(len(l_block))+"\n")
             p.stdin.flush()
             same_blocks += 1
         else:
             if srchost:
-                p.stdin.write((DIFF+":"+str(len(l_block))+"\n").encode())
+                p.stdin.write(DIFF+":"+str(len(l_block))+"\n")
                 p.stdin.flush()
-                (r_sum, r_len) = p.stdout.readline().decode().rstrip().split(":")
-                r_block = p.stdout.read(int(r_len))
+                (r_sum, r_len) = p.stdout.buffer.readline().decode().rstrip().split(":")
+                r_block = p.stdout.buffer.read(int(r_len))
                 if options.compress:
                     r_block = decompfunc(r_block)
                 if not options.dryrun:
@@ -312,9 +321,9 @@ def sync():
             else:
                 if options.compress:
                     l_block = compfunc(l_block)
-                p.stdin.write((DIFF+":"+str(len(l_block))+"\n").encode())
+                p.stdin.write(DIFF+":"+str(len(l_block))+"\n")
                 p.stdin.flush()
-                p.stdin.write(l_block)
+                p.stdin.buffer.write(l_block)
                 p.stdin.flush()
             diff_blocks += 1
         t_now = time.time()
@@ -324,10 +333,16 @@ def sync():
                     (1024.0 * 1024.0) / (t_now - t_start))
             print_stats(same_blocks, diff_blocks, size_blocks, rate)
             t_last = t_now
+    # Source file checksum
+    if options.showsum:
+        if srchost:
+            s_sum = p.stdout.readline().rstrip()
+        else:
+            s_sum = s_sum.hexdigest()
     # Sync pipes
     p.communicate()
     # Print final info
-    print_epilog(t_start)
+    print_epilog(t_start, s_sum)
 
 
 # Dynamically loaded hash function
