@@ -33,6 +33,7 @@ import time
 import argparse
 import math
 import zlib
+import json
 
 try:
     callable(os.posix_fadvise)
@@ -188,9 +189,7 @@ def generate_command(size):
 def sanity_check(size, p):
     p.poll()
     line = p.stdout.readline().rstrip()
-    (child_path, child_blocksize, child_size) = line.split(":")
-    child_blocksize = int(child_blocksize)
-    child_size = int(child_size)
+    (child_path, child_blocksize, child_size) = json.loads(line)
     if srchost:
         path = srcpath
     else:
@@ -235,7 +234,7 @@ def child():
             sys.stderr.write("ERROR: can not access destination path! %s\n" % e)
             sys.exit(1)
     # Begin comparison
-    sys.stdout.write(path+":"+str(options.blocksize)+":"+str(size)+"\n")
+    sys.stdout.write(json.dumps((path, options.blocksize, size))+"\n")
     sys.stdout.flush()
     block_id = options.skip
     s_sum = hashfunc()
@@ -377,6 +376,15 @@ def get_compfunc():
         decompfunc = None
     return (compfunc, decompfunc)
 
+# Parse source and destination params
+def parse_path (path):
+    hsep = path.find(":")
+    dsep = path.find("/")
+    if hsep and dsep and hsep < dsep:
+        return path.split(':', 1)
+    else:
+        return (False, path)
+
 # arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("src", help="Source file, ie: /home/example/file.img")
@@ -417,22 +425,10 @@ check_available_libs()
 hashfunc = get_hashfunc()
 (compfunc, decompfunc) = get_compfunc()
 
-# Global vars
-local = False
-srchost = False
-srcpath = False
-dsthost = False
-dstpath = False
-
 # Params parsing
-if "@" in options.src and ":" in options.src:
-    (srchost, srcpath) = options.src.split(':')
-else:
-    srcpath = options.src
-if "@" in options.dst and ":" in options.dst:
-    (dsthost, dstpath) = options.dst.split(':')
-else:
-    dstpath = options.dst
+local = False
+(srchost, srcpath) = parse_path (options.src)
+(dsthost, dstpath) = parse_path (options.dst)
 if options.rem:
     dsthost = options.rem
 if not dstpath:
