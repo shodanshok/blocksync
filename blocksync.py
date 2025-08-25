@@ -187,7 +187,6 @@ def generate_command(size):
 
 
 def sanity_check(size, p):
-    p.poll()
     line = p.stdout.readline().rstrip()
     (child_path, child_blocksize, child_size) = json.loads(line)
     if srchost:
