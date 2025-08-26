@@ -102,6 +102,7 @@ def do_open(f, mode):
     return f, size
 
 
+# Create dst file if needed
 def create_file(f):
     if os.path.exists(dstpath):
         f = open(f, 'r+b')
@@ -126,6 +127,7 @@ def getblocks(f):
         yield (block, csum)
 
 
+# Print session summary
 def print_session():
     print ("\n")
     print ("Dry run     : "+str(options.dryrun))
@@ -139,6 +141,7 @@ def print_session():
     print ("SRC command : "+" ".join(sys.argv))
 
 
+# Print running stats
 def print_stats(same_blocks, diff_blocks, size_blocks, rate):
     sumstring = "\rskipped: %d, same: %d, diff: %d, %d/%d, %5.1f MB/s"
     if options.quiet:
@@ -147,6 +150,8 @@ def print_stats(same_blocks, diff_blocks, size_blocks, rate):
                         options.skip + same_blocks + diff_blocks,
                         size_blocks, rate),end="")
 
+
+# Print final stats
 def print_epilog(t_start, s_sum):
     print ("\n\nCompleted in %d seconds" % (time.time() - t_start))
     if options.showsum:
@@ -156,6 +161,7 @@ def print_epilog(t_start, s_sum):
             print ("Source checksum: "+s_sum)
 
 
+# Generate local and remote commands
 def generate_command(size):
     if srchost:
         host = srchost
@@ -186,6 +192,7 @@ def generate_command(size):
     return cmd
 
 
+# Check src and dst params
 def sanity_check(size, p):
     line = p.stdout.readline().rstrip()
     (child_path, child_blocksize, child_size) = json.loads(line)
@@ -214,6 +221,7 @@ def sanity_check(size, p):
     return True
 
 
+# Child process
 def child():
     check_available_libs()
     if options.reader:
@@ -267,7 +275,7 @@ def child():
         sys.stdout.flush()
 
 
-# Local component. It print current options and send SAME/DIFF flags to child
+# Local component
 def sync():
     if srchost:
         path = dstpath
@@ -356,6 +364,7 @@ def get_hashfunc():
         hashfunc = hashlib.sha512
     return hashfunc
 
+
 # Dynamically loaded compression function
 def get_compfunc():
     if options.compress == "lz4":
@@ -375,6 +384,7 @@ def get_compfunc():
         decompfunc = None
     return (compfunc, decompfunc)
 
+
 # Parse source and destination params
 def parse_path (path):
     hsep = path.find(":")
@@ -383,6 +393,7 @@ def parse_path (path):
         return path.split(':', 1)
     else:
         return (False, path)
+
 
 # arguments
 parser = argparse.ArgumentParser()
